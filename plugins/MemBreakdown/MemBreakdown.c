@@ -7,8 +7,9 @@
  *    Counts), plus hardware-reserved, so the rows add up to the installed RAM;
  *  - Processes tab: top processes by private working set, with commit; double-click opens the process;
  *  - Pool tags tab: top kernel pool tags, described from System Informer's PoolTag.txt;
- *  - Cached files tab: how the file cache splits over files (the largest 64). Unnamed: the PFN data identifies a
- *    file by a kernel control-area address that user mode cannot turn into a name.
+ *  - Cached files tab: the 64 files holding the most cached pages. The PFN data identifies a file only by a kernel
+ *    key; names come from a short private ETW kernel session (file-name rundown, filenames.c), run only while
+ *    this tab is open.
  *
  * The PFN scan (memcore.c) runs on its own thread, only while this section is open, every
  * MemBreakdown.ScanIntervalSeconds (default 30; 0 = only when the section is opened).
@@ -17,6 +18,7 @@
 #include <phdk.h>
 #include <settings.h>
 #include "memcore.h"
+#include "filenames.h"
 #include "resource.h"
 
 #define PLUGIN_NAME L"MemBreakdown"
@@ -77,6 +79,10 @@ static BOOLEAN Sampled;
 // PFN scan, written on the scan thread
 static PH_QUEUED_LOCK ScanLock = PH_QUEUED_LOCK_INIT;
 static PMB_PFN_SCAN LastScan;
+static PPH_STRING FileNames[MB_MAX_FILES];   // DOS paths for LastScan->TopFiles (NULL: unknown)
+static BOOLEAN FileNamesValid;               // names were looked up for LastScan
+static ULONG FileNamesError;
+static volatile BOOLEAN WantFileNames;       // the Cached files tab is showing
 static ULONG ScanSequence;
 static HANDLE ScanEvent;
 static volatile BOOLEAN ScanRequested;
@@ -330,6 +336,10 @@ static NTSTATUS NTAPI ScanThreadStart(_In_ PVOID Parameter)
         LARGE_INTEGER timeout;
         PMB_PFN_SCAN scan;
         PMB_PFN_SCAN oldScan;
+        PPH_STRING names[MB_MAX_FILES] = { 0 };
+        PPH_STRING oldNames[MB_MAX_FILES];
+        BOOLEAN namesValid = FALSE;
+        ULONG namesError = ERROR_SUCCESS;
 
         timeout.QuadPart = -(LONGLONG)ScanIntervalSeconds * 1000 * PH_TIMEOUT_MS;
         NtWaitForSingleObject(ScanEvent, FALSE, ScanIntervalSeconds ? &timeout : NULL);
@@ -348,9 +358,36 @@ static NTSTATUS NTAPI ScanThreadStart(_In_ PVOID Parameter)
 
         MbScanPfns(scan, TRUE);
 
+        if (WantFileNames && NT_SUCCESS(scan->QueryStatus) && scan->TopFileCount)
+        {
+            MB_FILE_NAMES fileNames;
+
+            namesError = MbCollectFileNames(&fileNames, 250);
+
+            for (ULONG i = 0; i < scan->TopFileCount; i++)
+            {
+                PCWSTR name = MbFindFileName(&fileNames, scan->TopFiles[i].FileObject);
+
+                if (name)
+                {
+                    PPH_STRING ntName = PhCreateString((PWSTR)name);
+
+                    names[i] = PhGetFileName(ntName); // \Device\HarddiskVolumeN\... -> C:\...
+                    PhDereferenceObject(ntName);
+                }
+            }
+
+            MbFreeFileNames(&fileNames);
+            namesValid = TRUE;
+        }
+
         PhAcquireQueuedLockExclusive(&ScanLock);
         oldScan = LastScan;
         LastScan = scan;
+        memcpy(oldNames, FileNames, sizeof(FileNames));
+        memcpy(FileNames, names, sizeof(FileNames));
+        FileNamesValid = namesValid;
+        FileNamesError = namesError;
         ScanSequence++;
         PhReleaseQueuedLockExclusive(&ScanLock);
 
@@ -359,6 +396,8 @@ static NTSTATUS NTAPI ScanThreadStart(_In_ PVOID Parameter)
 
         if (oldScan)
             PhFree(oldScan);
+        for (ULONG i = 0; i < MB_MAX_FILES; i++)
+            PhClearReference(&oldNames[i]);
 
         WriteScanLog(scan);
     }
@@ -811,15 +850,24 @@ static VOID UpdateBreakdownList(VOID)
 
 // ---- processes -------------------------------------------------------------
 
+static ULONG ProcessSortColumn = 2; // 2 private WS, 3 commit, 4 working set (header click)
+
+static ULONG64 ProcessSortValue(_In_ PPH_PROCESS_ITEM Process)
+{
+    switch (ProcessSortColumn)
+    {
+    case 3: return Process->VmCounters.PagefileUsage;
+    case 4: return Process->VmCounters.WorkingSetSize;
+    default: return Process->WorkingSetPrivateSize;
+    }
+}
+
 static int __cdecl ProcessCompare(_In_ const void* A, _In_ const void* B)
 {
-    PPH_PROCESS_ITEM a = *(PPH_PROCESS_ITEM*)A;
-    PPH_PROCESS_ITEM b = *(PPH_PROCESS_ITEM*)B;
+    ULONG64 a = ProcessSortValue(*(PPH_PROCESS_ITEM*)A);
+    ULONG64 b = ProcessSortValue(*(PPH_PROCESS_ITEM*)B);
 
-    if (a->WorkingSetPrivateSize != b->WorkingSetPrivateSize)
-        return a->WorkingSetPrivateSize > b->WorkingSetPrivateSize ? -1 : 1;
-
-    return a->VmCounters.PagefileUsage > b->VmCounters.PagefileUsage ? -1 : a->VmCounters.PagefileUsage < b->VmCounters.PagefileUsage;
+    return a > b ? -1 : a < b;
 }
 
 static VOID UpdateProcessList(VOID)
@@ -881,12 +929,18 @@ static VOID UpdateFilesList(VOID)
             PMB_FILE_USAGE file = &scan->TopFiles[i];
             PLIST_ROW row = &Rows[count++];
 
+            if (FileNames[i])
             {
-                PH_FORMAT format[2];
+                CopyText(row->Name, RTL_NUMBER_OF(row->Name), PhGetString(FileNames[i]));
+            }
+            else
+            {
+                PH_FORMAT format[3];
 
                 PhInitFormatS(&format[0], L"Cached file ");
                 PhInitFormatU(&format[1], i + 1);
-                if (!PhFormatToBuffer(format, 2, row->Name, sizeof(row->Name), NULL))
+                PhInitFormatS(&format[2], !FileNamesValid ? L" (looking up names...)" : FileNamesError ? L" (name lookup failed)" : L" (name not reported)");
+                if (!PhFormatToBuffer(format, 3, row->Name, sizeof(row->Name), NULL))
                     row->Name[0] = UNICODE_NULL;
             }
 
@@ -1240,6 +1294,10 @@ static VOID TickDialog(VOID)
 static VOID SelectTab(_In_ ULONG Tab)
 {
     CurrentTab = Tab;
+    WantFileNames = Tab == TabFiles;
+
+    if (Tab == TabFiles && !FileNamesValid)
+        RequestScan(FALSE);
 
     for (ULONG t = 0; t < TAB_COUNT; t++)
         ShowWindow(Lists[t], t == Tab ? SW_SHOW : SW_HIDE);
@@ -1296,11 +1354,11 @@ static INT_PTR CALLBACK PanelDialogProc(
         {
             static CONST PCWSTR breakdownColumns[] = { L"Category", L"Total", L"Active", L"Standby", L"Modified", L"% of RAM" };
             static CONST LONG breakdownWidths[] = { 300, 80, 80, 80, 80, 64 };
-            static CONST PCWSTR processColumns[] = { L"Process (double-click for properties)", L"PID", L"Private WS", L"Commit", L"Working set" };
+            static CONST PCWSTR processColumns[] = { L"Process (double-click: properties; click a size header to sort)", L"PID", L"Private WS", L"Commit", L"Working set" };
             static CONST LONG processWidths[] = { 260, 64, 90, 90, 90 };
             static CONST PCWSTR poolColumns[] = { L"Tag", L"Nonpaged", L"Paged", L"Driver", L"Description" };
             static CONST LONG poolWidths[] = { 50, 90, 90, 151, 320 };
-            static CONST PCWSTR fileColumns[] = { L"File (largest first; names need a kernel driver)", L"Total", L"Active", L"Standby", L"Modified" };
+            static CONST PCWSTR fileColumns[] = { L"File", L"Total", L"Active", L"Standby", L"Modified" };
             static CONST LONG fileWidths[] = { 420, 80, 80, 80, 80 };
             LONG dpi = PhGetWindowDpi(WindowHandle);
 
@@ -1314,7 +1372,7 @@ static INT_PTR CALLBACK PanelDialogProc(
             PhAddTabControlTab(Tabs, TabBreakdown, L"Breakdown");
             PhAddTabControlTab(Tabs, TabProcesses, L"Processes");
             PhAddTabControlTab(Tabs, TabPool, L"Pool tags");
-            PhAddTabControlTab(Tabs, TabFiles, L"Cached files (unnamed)");
+            PhAddTabControlTab(Tabs, TabFiles, L"Cached files");
 
             InitList(Lists[TabBreakdown], RTL_NUMBER_OF(breakdownColumns), breakdownColumns, breakdownWidths, dpi);
             InitList(Lists[TabProcesses], RTL_NUMBER_OF(processColumns), processColumns, processWidths, dpi);
@@ -1322,6 +1380,7 @@ static INT_PTR CALLBACK PanelDialogProc(
             InitList(Lists[TabFiles], RTL_NUMBER_OF(fileColumns), fileColumns, fileWidths, dpi);
 
             TabCtrl_SetCurSel(Tabs, CurrentTab);
+            WantFileNames = CurrentTab == TabFiles;
             for (ULONG t = 0; t < TAB_COUNT; t++)
                 ShowWindow(Lists[t], t == CurrentTab ? SW_SHOW : SW_HIDE);
             ShownFilesSequence = ULONG_MAX;
@@ -1341,6 +1400,16 @@ static INT_PTR CALLBACK PanelDialogProc(
 
                 if (tab >= 0 && tab < TAB_COUNT)
                     SelectTab(tab);
+            }
+            else if (header->hwndFrom == Lists[TabProcesses] && header->code == LVN_COLUMNCLICK)
+            {
+                LPNMLISTVIEW listView = (LPNMLISTVIEW)lParam;
+
+                if (listView->iSubItem >= 2 && listView->iSubItem <= 4)
+                {
+                    ProcessSortColumn = listView->iSubItem;
+                    UpdateProcessList();
+                }
             }
             else if (header->hwndFrom == Lists[TabProcesses] && header->code == NM_DBLCLK)
             {

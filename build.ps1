@@ -13,7 +13,7 @@ if ($Probe) {
     New-Item -ItemType Directory -Force bin, obj\memprobe | Out-Null
     $step = 'cl /nologo /std:clatest /O2 /MT /W3 /utf-8 /DWIN64 /DNDEBUG /DUNICODE /D_UNICODE ' +
         '/I vendor\systeminformer\phnt\include /I plugins\MemBreakdown /Foobj\memprobe\ /Febin\memprobe.exe ' +
-        'tools\memprobe\memprobe.c plugins\MemBreakdown\memcore.c ntdll.lib kernel32.lib'
+        'tools\memprobe\memprobe.c plugins\MemBreakdown\memcore.c plugins\MemBreakdown\filenames.c ntdll.lib kernel32.lib advapi32.lib'
     cmd /c ("call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul 2>&1 && " + $step)
     if ($LASTEXITCODE) { throw "memprobe build failed ($LASTEXITCODE)" }
     'Built bin\memprobe.exe'

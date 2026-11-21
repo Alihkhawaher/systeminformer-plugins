@@ -39,8 +39,10 @@ Pushes to this public repo need the owner's explicit OK each time.
   `SystemMemoryListInformation` within ~1 GB (memory moves during the scan).
 - `SystemMemoryListInformation` works without admin on 19045. `SYSTEM_PERFORMANCE_INFORMATION.ResidentSystemDriverPage`
   reads 0xFFFFFFFF (unusable); ResidentSystemCodePage reads 0.
-- PFN file pages' `u2.FileObject` is NOT a FILE_OBJECT: probed against all 1.8M system handles, no key matched any
-  handle's object (keys look like control-area addresses). File names need a kernel driver; don't retry handle matching.
+- PFN file pages' `u2.FileObject` is NOT a FILE_OBJECT: no key matched any of 1.8M system handles' objects. It IS the
+  ETW file key: a private system-logger session (`EVENT_TRACE_SYSTEM_LOGGER_MODE`, `EVENT_TRACE_FLAG_DISK_FILE_IO`)
+  stopped after 250 ms gives FileIo rundown events (opcode 0/32/36: key + NT path) that named 64/64 top files
+  (filenames.c). Never stop "NT Kernel Logger" or other sessions: only our own by name.
 - Not in SystemInformer.def (not callable from plugins): `PhDereferenceObjects`, `PhPerfInformation`, `PhGetPhysicallyInstalledSystemMemory`.
   `PhEnumProcessItems` returns VOID. SI integer settings are hex strings ("1e" = 30).
 - Dialog procs get WM_SIZE before WM_INITDIALOG: guard globals/layout managers until init ran.

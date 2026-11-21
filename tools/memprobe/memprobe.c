@@ -11,6 +11,7 @@
 #include <phnt.h>
 #include <stdio.h>
 #include "memcore.h"
+#include "filenames.h"
 
 static FILE* Out;
 
@@ -100,6 +101,32 @@ int wmain(int argc, wchar_t** argv)
     for (ULONG i = 0; i < scan->TopFileCount && i < 15; i++)
     {
         fprintf(Out, "  #%2lu %8.3f %8.3f %8.3f\n", i, Gb(scan->TopFiles[i].Pages[0]), Gb(scan->TopFiles[i].Pages[1]), Gb(scan->TopFiles[i].Pages[2]));
+    }
+
+    // File names for the top file keys, from the ETW file-name rundown (paths are not printed, only extensions).
+    {
+        MB_FILE_NAMES names;
+        ULONG64 start = GetTickCount64();
+        ULONG error = MbCollectFileNames(&names, 1000);
+        ULONG64 matchedPages = 0, topPages = 0;
+
+        fprintf(Out, "\nfile names: error %lu, %lu FileIo events, %lu names, %llu ms\n", error, names.Events, names.Count, GetTickCount64() - start);
+
+        for (ULONG f = 0; f < scan->TopFileCount; f++)
+        {
+            PMB_FILE_USAGE file = &scan->TopFiles[f];
+            PCWSTR name = MbFindFileName(&names, file->FileObject);
+            PCWSTR ext = name ? wcsrchr(name, L'.') : NULL;
+            ULONG64 pages = file->Pages[0] + file->Pages[1] + file->Pages[2];
+
+            topPages += pages;
+            if (name) matchedPages += pages;
+            if (f < 15)
+                fprintf(Out, "  #%2lu %8.3f GB %ls %ls\n", f, Gb(pages), name ? L"named" : L"-", ext && wcslen(ext) < 12 ? ext : L"");
+        }
+
+        fprintf(Out, "named %.2f of %.2f GB in the top %lu files\n", Gb(matchedPages), Gb(topPages), scan->TopFileCount);
+        MbFreeFileNames(&names);
     }
 
     if (Out != stdout)

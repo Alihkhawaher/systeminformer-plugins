@@ -21,19 +21,22 @@ Information) whose rows add up to the installed RAM, a live version of RAMMap's 
   Below the total are live rows that are not added to it: standby by priority, resident pool, the system file
   cache working set and commit charge.
 - **Processes** tab: the top 100 processes by private working set, with commit (private bytes) and working set.
-  Double-click a process to open its properties.
+  Click the Private WS, Commit or Working set header to sort by it. Double-click a process to open its properties.
 - **Pool tags** tab: the top 100 kernel pool tags (nonpaged and paged bytes), with driver and description from
   System Informer's `PoolTag.txt`. Pool sizes are allocated bytes. Paged pool can be partly paged out.
-- **Cached files (unnamed)** tab: how the file cache splits over files, the 64 largest first, by active, standby
-  and modified pages. It shows, for example, that a few large files hold most of the standby cache. Files have no
-  names. The page data identifies a file only by a kernel address, which looks like a control area rather than a
-  file object. That address matches no open handle in the system, so naming the files would need a kernel driver.
+- **Cached files** tab: the 64 files holding the most cached pages (active, standby and modified), with the rest
+  summed in one row. This is where a large standby cache comes from, for example model files or disk images that
+  were read once.
 
 ## How it works
 
 - The page-by-page (PFN) scan runs on its own thread, only while the section is open, every
   `MemBreakdown.ScanIntervalSeconds` seconds (default 30; `0` scans only when you open the section).
 - A scan of 128 GB takes about 4 seconds of one CPU core.
+- The page data names a file only by a kernel key. While the Cached files tab is showing, each scan also runs a
+  private ETW kernel session ("MemBreakdown File Names", file-I/O flag) for a quarter of a second. When it stops,
+  the kernel reports a key and path for each file it knows. This adds about 1.5 s per scan. Without that tab
+  showing, no trace runs.
 - It needs System Informer running as administrator. Without admin, the tab shows the live counters and labels
   the part it cannot explain.
 - The status line shows when the last scan ran and how far its standby count is from the kernel's own counter.
