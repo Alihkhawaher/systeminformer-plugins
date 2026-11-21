@@ -127,7 +127,7 @@ static VOID TrayDrawHistory(
     PhFree(data1);
 }
 
-// A number ("45") in the icon, like System Informer's "CPU usage (text)".
+// A number ("45") in the icon (no plugin uses it yet), like System Informer's "CPU usage (text)".
 static VOID TrayDrawText(
     _In_ PPH_NF_ICON Icon,
     _In_ FLOAT Value,

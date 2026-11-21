@@ -12,6 +12,7 @@
  */
 
 #include "diskmon.h"
+#include <trayicon.h>
 
 #define PLUGIN_NAME L"DiskMonitor"
 #define SETTING_NAME_SMART_INTERVAL (PLUGIN_NAME L".SmartIntervalSeconds")
@@ -1645,10 +1646,11 @@ static BOOLEAN NTAPI SectionCallback(
 }
 
 // ---- tray icons --------------------------------------------------------------------------------
-// View > Tray icons: all disks' I/O history, and per disk its I/O history and active time as a number.
-// SubId: 1 = all disks; 0x100 + disk number * 4 + kind for one disk (the disk number is stable across restarts).
+// View > Tray icons: all disks' read/write history, and one per disk.
+// SubId: 1 = all disks; 0x100 + disk number * 4 + kind for one disk. System Informer remembers ticked icons by SubId,
+// so an icon follows its PhysicalDrive number (which can change when USB disks are plugged in a different order).
 
-enum { TrayAll = 1, TrayDiskIo = 1, TrayDiskActiveText = 2 };
+enum { TrayAll = 1, TrayDiskIo = 1 };
 #define TRAY_DISK_SUBID(Disk, Kind) (0x100 + (Disk)->Number * 4 + (Kind))
 
 // {9C47E1B2-3A6D-4E85-B0F4-7D2A5C1E8B30}
@@ -1758,16 +1760,8 @@ static VOID NTAPI DiskTrayUpdate(_In_ PPH_NF_ICON Icon, _Out_ PVOID* NewIconOrBi
 {
     PDISK disk = Context;
 
-    if (disk && Icon->SubId == TRAY_DISK_SUBID(disk, TrayDiskActiveText))
-    {
-        TrayDrawText(Icon, disk->Active * 100, PhGetIntegerSetting(SETTING_COLOR_IO_READ_OTHER), NewIconOrBitmap, Flags);
-    }
-    else
-    {
-        TrayDrawHistory(Icon, PhGetIntegerSetting(SETTING_COLOR_IO_READ_OTHER), PhGetIntegerSetting(SETTING_COLOR_IO_WRITE),
-            DiskTrayFill, disk, NewIconOrBitmap, Flags);
-    }
-
+    TrayDrawHistory(Icon, PhGetIntegerSetting(SETTING_COLOR_IO_READ_OTHER), PhGetIntegerSetting(SETTING_COLOR_IO_WRITE),
+        DiskTrayFill, disk, NewIconOrBitmap, Flags);
     *NewText = disk ? DiskTrayTip(disk) : AllDisksTrayTip();
 }
 
@@ -1788,8 +1782,6 @@ static VOID NTAPI TrayIconsInitializingCallback(_In_opt_ PVOID Parameter, _In_op
 
         TrayRegister(pointers, PluginInstance, &TrayBaseGuid, TRAY_DISK_SUBID(disk, TrayDiskIo), disk,
             PhFormatString(L"Disk history: %s", disk->Title->Buffer), TRUE, DiskTrayUpdate);
-        TrayRegister(pointers, PluginInstance, &TrayBaseGuid, TRAY_DISK_SUBID(disk, TrayDiskActiveText), disk,
-            PhFormatString(L"Disk active time (text): %s", disk->Title->Buffer), TRUE, DiskTrayUpdate);
     }
 }
 

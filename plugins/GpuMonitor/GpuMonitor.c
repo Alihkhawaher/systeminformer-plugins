@@ -1584,10 +1584,10 @@ static BOOLEAN NTAPI SectionCallback(
 }
 
 // ---- tray icons --------------------------------------------------------------------------------
-// Per GPU (View > Tray icons): load history, memory history, temperature history (NVML), load as a number.
-// SubId = GPU index * 8 + kind, so the choice survives a restart while the GPUs stay the same.
+// Per GPU (View > Tray icons): load history, memory history, temperature history (NVML).
+// SubId = GPU index * 8 + kind: System Informer remembers ticked icons by SubId, so they follow the discovery order.
 
-enum { TrayLoad = 1, TrayMemory, TrayTemperature, TrayLoadText };
+enum { TrayLoad = 1, TrayMemory, TrayTemperature };
 
 // {5E2A9C41-7B3D-4F18-A6E2-0C9B1D7F3A60}
 static CONST GUID TrayBaseGuid = { 0x5e2a9c41, 0x7b3d, 0x4f18, { 0xa6, 0xe2, 0x0c, 0x9b, 0x1d, 0x7f, 0x3a, 0x60 } };
@@ -1649,9 +1649,6 @@ static VOID NTAPI GpuTrayUpdate(_In_ PPH_NF_ICON Icon, _Out_ PVOID* NewIconOrBit
     case TrayTemperature:
         TrayDrawHistory(Icon, PhGetIntegerSetting(SETTING_COLOR_TEMPERATURE), CLR_NONE, GpuTrayFillTemperature, gpu, NewIconOrBitmap, Flags);
         break;
-    case TrayLoadText:
-        TrayDrawText(Icon, gpu->Value[MetricGpu] * 100, PhGetIntegerSetting(SETTING_COLOR_CPU_KERNEL), NewIconOrBitmap, Flags);
-        break;
     default:
         TrayDrawHistory(Icon, PhGetIntegerSetting(SETTING_COLOR_CPU_KERNEL), CLR_NONE, GpuTrayFillLoad, gpu, NewIconOrBitmap, Flags);
         break;
@@ -1678,7 +1675,6 @@ static VOID NTAPI TrayIconsInitializingCallback(_In_opt_ PVOID Parameter, _In_op
         TrayRegister(pointers, PluginInstance, &TrayBaseGuid, i * 8 + TrayMemory, gpu, PhFormatString(L"GPU memory history: %s", name), TRUE, GpuTrayUpdate);
         if (gpu->HasNvml)
             TrayRegister(pointers, PluginInstance, &TrayBaseGuid, i * 8 + TrayTemperature, gpu, PhFormatString(L"GPU temperature history: %s", name), TRUE, GpuTrayUpdate);
-        TrayRegister(pointers, PluginInstance, &TrayBaseGuid, i * 8 + TrayLoadText, gpu, PhFormatString(L"GPU usage (text): %s", name), TRUE, GpuTrayUpdate);
     }
 }
 

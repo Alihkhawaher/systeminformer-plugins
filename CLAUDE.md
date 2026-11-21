@@ -72,5 +72,6 @@ Pushes to this public repo need the owner's explicit OK each time.
 - Tray icons: register from `GeneralCallbackTrayIconsInitializing` (runs after PluginCallbackLoad, so discovered
   devices are known) with `common\trayicon.h`. The update callback runs on SI's TrayIconUpdateThread, which has **no
   auto pool**: no `PH_AUTO`/`Pha*` there (use `TrayAppendOwned`). The menu keeps the `Text` pointer, so never free
-  it. SubId is saved in `IconSettings` (plugin name + SubId), so keep it stable per device (GPU index, disk number).
+  it. SubId is saved in `IconSettings` (plugin name + SubId), so it follows the device's
+  index (GPU discovery order, PhysicalDrive number), which can shift when hardware changes.
   The GUID is only used with `IconTrayPersistGuidEnabled`; `TrayGuid` derives one per SubId from a fixed base.

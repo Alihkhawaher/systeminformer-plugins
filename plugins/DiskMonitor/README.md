@@ -7,8 +7,7 @@ One **Disks** section in System Information for all physical disks (found automa
 - **Graphs** of the selected disk: read/write speed (two lines), active time, average response time, temperature.
 - **Apps**: processes doing I/O on the selected disk right now (read/s, write/s); double-click for properties.
   Read/write tooltips (tiles and graph) name the busiest app at that moment.
-- **Tray icons** (View > Tray icons): *Disk history: all disks*, and per disk *Disk history* (read/write graph) and
-  *Disk active time (text)*. The tooltip shows health, read/write speed, active time, temperature and the busiest
+- **Tray icons** (View > Tray icons): *Disk history: all disks*, and a *Disk history* read/write graph per disk. The tooltip shows health, read/write speed, active time, temperature and the busiest
   app on that disk.
 
 Per-app I/O comes from a private ETW system-logger session `SiDiskMonitorSession` with only disk-I/O events
