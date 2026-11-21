@@ -55,8 +55,16 @@ stays in your profile; uninstalling the plugin does not delete it.
 | `ProcessLog.MaxLogFileMB` | `20` (32 MB) | size of each of the two log files |
 | `ProcessLog.MaxEntries` | `c350` (50,000) | processes kept in memory and shown |
 
-A busy development machine can start several hundred processes a minute, so the defaults hold a few hours of
-history there and much more on a quiet one.
+History depends on how many processes start. A machine under heavy build or automation load can start about 700
+a minute. There, 50,000 entries cover roughly 70 minutes, and the two 32 MB files (about 600 bytes per process)
+cover one to two hours. A quiet desktop gets days from the same defaults. Each in-memory entry costs about 1 KB.
+For more history, raise both settings.
+
+## Checking it
+
+`.\plugins\ProcessLog\test-processlog.ps1` runs `cmd /c exit 3` from a normal shell. It then prints the status
+file, the log's health counters and the test process's rows (parent, duration, exit code) by reading the log files.
+`-NoRun` prints the status and health only.
 
 ## Limits
 

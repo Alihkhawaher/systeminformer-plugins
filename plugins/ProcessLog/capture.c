@@ -395,7 +395,10 @@ static VOID PlpTrim(
     PlEntryCount = j;
 }
 
-static VOID PlpAppend(
+static BOOLEAN PlLoading;
+
+// Adds the entry to the log. On FALSE (out of memory) the entry is not in the log and still owned by the caller.
+static BOOLEAN PlpAppend(
     _In_ PLOG_ENTRY Entry
     )
 {
@@ -405,10 +408,7 @@ static VOID PlpAppend(
         PLOG_ENTRY *entries = realloc(PlEntries, capacity * sizeof(PLOG_ENTRY));
 
         if (!entries)
-        {
-            PlpFreeEntry(Entry);
-            return;
-        }
+            return FALSE;
 
         PlEntries = entries;
         PlEntryCapacity = capacity;
@@ -417,7 +417,11 @@ static VOID PlpAppend(
     Entry->Seq = PlNextSeq++;
     Entry->Flags |= LE_VISIBLE;
     PlEntries[PlEntryCount++] = Entry;
-    PlpTrim();
+
+    if (!PlLoading) // loaded entries are chained in PlLoadHash: trim after loading
+        PlpTrim();
+
+    return TRUE;
 }
 
 PLOG_ENTRY PlFindEntryBySeq(
@@ -626,18 +630,26 @@ static VOID PlpUnescapeInPlace(
     *out = UNICODE_NULL;
 }
 
+// While loading, every loaded entry is chained here by PID (through HashNext, newest first), so an 'E' line finds
+// its 'S' line however many processes started in between. Cleared before live capture uses HashNext.
+static PLOG_ENTRY PlLoadHash[PL_HASH_SIZE];
+static ULONG PlLoadedLines = 0;
+static ULONG PlLoadMs = 0;
+static ULONG PlLoadExitUnknown = 0;
+
 // Merges one loaded record: an 'E' record completes the matching earlier 'S' record.
 static VOID PlpMergeLoaded(
     _Inout_ PLOG_ENTRY Record,
     _In_ WCHAR Kind
     )
 {
-    LONG i;
-    ULONG scanned = 0;
+    PLOG_ENTRY entry;
+    ULONG index = PlpHashIndex(Record->ProcessId);
 
-    for (i = (LONG)PlEntryCount - 1; i >= 0 && scanned < 1024; i--, scanned++)
+    PlLoadedLines++;
+
+    for (entry = PlLoadHash[index]; entry; entry = entry->HashNext)
     {
-        PLOG_ENTRY entry = PlEntries[i];
         BOOLEAN sameKey;
         BOOLEAN sameStart;
 
@@ -654,7 +666,11 @@ static VOID PlpMergeLoaded(
         if (Record->StartTime && entry->StartTime && entry->StartTime != Record->StartTime)
             continue;
 
-        if (Kind == L'E')
+        if (Kind == L'E' && (Record->Flags & LE_EXIT_UNKNOWN) && !Record->ExitTime && entry->ExitTime)
+        {
+            // never let an "exit not seen" line replace a real exit
+        }
+        else if (Kind == L'E')
         {
             PlpTake(&entry->Name, &Record->Name);
             PlpTake(&entry->ParentName, &Record->ParentName);
@@ -683,7 +699,14 @@ static VOID PlpMergeLoaded(
         return;
     }
 
-    PlpAppend(Record);
+    if (!PlpAppend(Record))
+    {
+        PlpFreeEntry(Record);
+        return;
+    }
+
+    Record->HashNext = PlLoadHash[index];
+    PlLoadHash[index] = Record;
 }
 
 static VOID PlpParseLine(
@@ -980,8 +1003,8 @@ static VOID PlpDetach(
 {
     PlpHashRemove(Entry);
 
-    if (!(Entry->Flags & LE_VISIBLE))
-        PlpAppend(Entry); // already running when logging started
+    if (!(Entry->Flags & LE_VISIBLE) && !PlpAppend(Entry)) // already running when logging started
+        PlpFreeEntry(Entry);
 }
 
 static BOOLEAN PlpKeysMatch(
@@ -1042,7 +1065,12 @@ static VOID PlpHandleStart(
         }
     }
 
-    PlpAppend(entry);
+    if (!PlpAppend(entry))
+    {
+        PlpFreeEntry(entry);
+        return;
+    }
+
     PlpHashInsert(entry);
 
     // The 'S' line is written once the image path is known (normally a few ms later, see PlpOnImageEvent).
@@ -1117,7 +1145,11 @@ static VOID PlpHandleEnd(
         if (!entry->StartTime)
             entry->Flags |= LE_START_UNKNOWN;
 
-        PlpAppend(entry);
+        if (!PlpAppend(entry))
+        {
+            PlpFreeEntry(entry);
+            return;
+        }
     }
 
     PlpWriteRecord(entry, L'E');
@@ -1388,6 +1420,7 @@ VOID PlWriteStatusFile(
     PlBufAppendF(&text, L"events: starts=%llu ends=%llu imageLoads=%llu lost=%lu realTimeBuffersLost=%lu\r\n",
         stats.Starts, stats.Ends, stats.Images, stats.EventsLost, stats.BuffersLost);
     PlBufAppendF(&text, L"entries in memory: %lu\r\n", stats.Entries);
+    PlBufAppendF(&text, L"history load: %lu lines in %lu ms, %lu marked exit not seen\r\n", PlLoadedLines, PlLoadMs, PlLoadExitUnknown);
 
     file = CreateFileW(PlStatusFilePath, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_DELETE, NULL, CREATE_ALWAYS,
         FILE_ATTRIBUTE_NORMAL, NULL);
@@ -1489,8 +1522,18 @@ static VOID PlpInitialize(
     if (PlLogFilePath[0])
     {
         _snwprintf_s(oldPath, RTL_NUMBER_OF(oldPath), _TRUNCATE, L"%s.1", PlLogFilePath);
+        ULONG64 loadStart = GetTickCount64();
+
+        PlLoading = TRUE;
         PlpLoadFile(oldPath);
         PlpLoadFile(PlLogFilePath);
+        PlLoading = FALSE;
+
+        for (i = 0; i < PlEntryCount; i++)
+            PlEntries[i]->HashNext = NULL;
+        memset(PlLoadHash, 0, sizeof(PlLoadHash));
+
+        PlLoadMs = (ULONG)(GetTickCount64() - loadStart);
         PlpOpenLogFile();
     }
 
@@ -1521,9 +1564,12 @@ static VOID PlpInitialize(
         {
             entry->Flags &= ~LE_RUNNING;
             entry->Flags |= LE_EXIT_UNKNOWN;
+            PlLoadExitUnknown++;
             PlpWriteRecord(entry, L'E');
         }
     }
+
+    PlpTrim();
 
     // Everything else that is running now: kept out of the log until it exits.
     for (i = 0; i < liveCount; i++)

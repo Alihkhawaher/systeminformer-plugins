@@ -46,3 +46,6 @@ Pushes to this public repo need the owner's explicit OK each time.
   'Read','ReadWrite,Delete')`); `ReadAllLines` fails. Test via the plugin's files, never paste real command lines.
 - In a worktree, `vendor` may be a junction to the main checkout's clone: remove it with `cmd /c rmdir vendor`
   before deleting the worktree so a recursive delete can't follow it.
+- Sibling sessions' `install.ps1` runs restart System Informer, so whatever ProcessLog.dll is installed at that
+  moment runs (and rewrites its log). When judging a log, tie lines to the build that wrote them (startup blocks).
+- ProcessLog check without the window: `plugins\ProcessLog	est-processlog.ps1` (status, log health, test row).

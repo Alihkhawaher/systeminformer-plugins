@@ -775,6 +775,10 @@ static INT_PTR CALLBACK PlpDlgProc(
             PlWindow = WindowHandle;
             PlList = GetDlgItem(WindowHandle, IDC_LIST);
             PlDarkTheme = !!PhGetIntegerSetting(SETTING_ENABLE_THEME_SUPPORT);
+            PlSearch[0] = UNICODE_NULL; // the controls start empty: so do the filters
+            PlShortOnly = FALSE;
+            PlRunningOnly = FALSE;
+            PlViewCount = 0;
 
             ListView_SetExtendedListViewStyleEx(PlList,
                 LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_HEADERDRAGDROP | LVS_EX_LABELTIP,
@@ -794,8 +798,16 @@ static INT_PTR CALLBACK PlpDlgProc(
             PhAddLayoutItem(&PlLayout, GetDlgItem(WindowHandle, IDC_STATUS), NULL, PH_ANCHOR_LEFT | PH_ANCHOR_RIGHT | PH_ANCHOR_BOTTOM);
 
             PhLoadWindowPlacementFromSetting(SETTING_NAME_WINDOW_POSITION, SETTING_NAME_WINDOW_SIZE, WindowHandle);
+            mainWindow = SystemInformer_GetWindowHandle();
 
-            if ((mainWindow = SystemInformer_GetWindowHandle()) &&
+            {
+                PH_INTEGER_PAIR position = PhGetIntegerPairSetting(SETTING_NAME_WINDOW_POSITION);
+
+                if (position.X == 0 && position.Y == 0) // first open: no saved position
+                    PhCenterWindow(WindowHandle, mainWindow && IsWindowVisible(mainWindow) ? mainWindow : NULL);
+            }
+
+            if (mainWindow &&
                 (icon = (HICON)SendMessage(mainWindow, WM_GETICON, ICON_SMALL, 0)))
             {
                 SendMessage(WindowHandle, WM_SETICON, ICON_SMALL, (LPARAM)icon);
