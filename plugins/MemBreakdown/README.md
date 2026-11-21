@@ -24,10 +24,10 @@ Information) whose rows add up to the installed RAM, a live version of RAMMap's 
   Double-click a process to open its properties.
 - **Pool tags** tab: the top 100 kernel pool tags (nonpaged and paged bytes), with driver and description from
   System Informer's `PoolTag.txt`. Pool sizes are allocated bytes. Paged pool can be partly paged out.
-- **Cached files** tab: the 64 files holding the most cached pages (active, standby and modified), found while
-  scanning pages. A name is shown only when some process has the file open: the file name comes from a handle to
-  the same file object. Files that are closed, or that only the kernel opened, are listed without a name. Most
-  standby cache is in this group.
+- **Cached files (unnamed)** tab: how the file cache splits over files, the 64 largest first, by active, standby
+  and modified pages. It shows, for example, that a few large files hold most of the standby cache. Files have no
+  names: the page data identifies a file by a kernel address (its control area, not a file object). That address
+  matches no open handle, so only a kernel driver could name the file, as RAMMap does.
 
 ## How it works
 

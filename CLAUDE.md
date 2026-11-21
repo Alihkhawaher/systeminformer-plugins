@@ -39,8 +39,8 @@ Pushes to this public repo need the owner's explicit OK each time.
   `SystemMemoryListInformation` within ~1 GB (memory moves during the scan).
 - `SystemMemoryListInformation` works without admin on 19045. `SYSTEM_PERFORMANCE_INFORMATION.ResidentSystemDriverPage`
   reads 0xFFFFFFFF (unusable); ResidentSystemCodePage reads 0.
-- PFN file pages carry the FILE_OBJECT address; MemBreakdown names it through an open handle to the same object
-  (`PhEnumHandlesEx` + `PhGetHandleInformation`). Closed files stay unnamed.
+- PFN file pages' `u2.FileObject` is NOT a FILE_OBJECT: probed against all 1.8M system handles, no key matched any
+  handle's object (keys look like control-area addresses). File names need a kernel driver; don't retry handle matching.
 - Not in SystemInformer.def (not callable from plugins): `PhDereferenceObjects`, `PhPerfInformation`, `PhGetPhysicallyInstalledSystemMemory`.
   `PhEnumProcessItems` returns VOID. SI integer settings are hex strings ("1e" = 30).
 - Dialog procs get WM_SIZE before WM_INITDIALOG: guard globals/layout managers until init ran.

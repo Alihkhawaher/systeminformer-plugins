@@ -7,7 +7,8 @@
  *    Counts), plus hardware-reserved, so the rows add up to the installed RAM;
  *  - Processes tab: top processes by private working set, with commit; double-click opens the process;
  *  - Pool tags tab: top kernel pool tags, described from System Informer's PoolTag.txt;
- *  - Files tab: files holding the most cached pages (names found through open handles).
+ *  - Cached files tab: how the file cache splits over files (the largest 64). Unnamed: the PFN data identifies a
+ *    file by a kernel control-area address that user mode cannot turn into a name.
  *
  * The PFN scan (memcore.c) runs on its own thread, only while this section is open, every
  * MemBreakdown.ScanIntervalSeconds (default 30; 0 = only when the section is opened).
@@ -15,7 +16,6 @@
 
 #include <phdk.h>
 #include <settings.h>
-#include <hndlinfo.h>
 #include "memcore.h"
 #include "resource.h"
 
@@ -77,7 +77,6 @@ static BOOLEAN Sampled;
 // PFN scan, written on the scan thread
 static PH_QUEUED_LOCK ScanLock = PH_QUEUED_LOCK_INIT;
 static PMB_PFN_SCAN LastScan;
-static PPH_STRING FileNames[MB_MAX_FILES];
 static ULONG ScanSequence;
 static HANDLE ScanEvent;
 static volatile BOOLEAN ScanRequested;
@@ -269,65 +268,8 @@ static VOID SampleFast(VOID)
 
 // ---- PFN scan (scan thread) ------------------------------------------------
 
-// Names for the top file objects, from any open handle that points at the same FILE_OBJECT.
-static VOID ResolveFileNames(_In_ PMB_PFN_SCAN Scan, _Out_writes_(MB_MAX_FILES) PPH_STRING* Names)
-{
-    PSYSTEM_HANDLE_INFORMATION_EX handles;
-    HANDLE processHandle = NULL;
-    HANDLE processId = (HANDLE)ULONG_PTR_MAX;
-    ULONG remaining = Scan->TopFileCount;
-
-    memset(Names, 0, sizeof(PPH_STRING) * MB_MAX_FILES);
-
-    if (!remaining || !NT_SUCCESS(PhEnumHandlesEx(&handles)))
-        return;
-
-    for (ULONG_PTR i = 0; i < handles->NumberOfHandles && remaining; i++)
-    {
-        PSYSTEM_HANDLE_TABLE_ENTRY_INFO_EX handle = &handles->Handles[i];
-
-        for (ULONG j = 0; j < Scan->TopFileCount; j++)
-        {
-            PPH_STRING bestName = NULL;
-
-            if (Names[j] || (ULONG_PTR)handle->Object != Scan->TopFiles[j].FileObject)
-                continue;
-
-            if (handle->UniqueProcessId != processId)
-            {
-                if (processHandle)
-                    NtClose(processHandle);
-                processHandle = NULL;
-                processId = handle->UniqueProcessId;
-                PhOpenProcess(&processHandle, PROCESS_DUP_HANDLE, processId);
-            }
-
-            if (processHandle && NT_SUCCESS(PhGetHandleInformation(processHandle, (HANDLE)handle->HandleValue,
-                handle->ObjectTypeIndex, NULL, NULL, NULL, &bestName)) && bestName)
-            {
-                if (bestName->Length)
-                {
-                    Names[j] = bestName;
-                    remaining--;
-                }
-                else
-                {
-                    PhDereferenceObject(bestName);
-                }
-            }
-
-            break;
-        }
-    }
-
-    if (processHandle)
-        NtClose(processHandle);
-
-    PhFree(handles);
-}
-
 // %APPDATA%\SystemInformer\MemBreakdown.log: status and totals of the last scan (numbers only, no file names).
-static VOID WriteScanLog(_In_ PMB_PFN_SCAN Scan, _In_ ULONG ResolvedFiles)
+static VOID WriteScanLog(_In_ PMB_PFN_SCAN Scan)
 {
     WCHAR path[MAX_PATH];
     PH_STRING_BUILDER sb;
@@ -355,7 +297,7 @@ static VOID WriteScanLog(_In_ PMB_PFN_SCAN Scan, _In_ ULONG ResolvedFiles)
         Scan->ListTotals[MMPFNLIST_FREE], (ULONG64)Scan->ListsBefore.FreePageCount,
         Scan->ListTotals[MMPFNLIST_STANDBY], standbyBefore,
         Scan->ListTotals[MMPFNLIST_MODIFIED], (ULONG64)Scan->ListsBefore.ModifiedPageCount);
-    PhAppendFormatStringBuilder(&sb, L"file objects %lu, top %lu, names resolved %lu\r\n", Scan->FileObjectCount, Scan->TopFileCount, ResolvedFiles);
+    PhAppendFormatStringBuilder(&sb, L"file objects %lu, top %lu\r\n", Scan->FileObjectCount, Scan->TopFileCount);
     PhAppendFormatStringBuilder(&sb, L"process private WS (sum) %llu bytes over %lu processes\r\n", PrivateWsBytes, ProcessCount);
 
     file = CreateFileW(path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -388,9 +330,6 @@ static NTSTATUS NTAPI ScanThreadStart(_In_ PVOID Parameter)
         LARGE_INTEGER timeout;
         PMB_PFN_SCAN scan;
         PMB_PFN_SCAN oldScan;
-        PPH_STRING names[MB_MAX_FILES];
-        PPH_STRING oldNames[MB_MAX_FILES];
-        ULONG resolved = 0;
 
         timeout.QuadPart = -(LONGLONG)ScanIntervalSeconds * 1000 * PH_TIMEOUT_MS;
         NtWaitForSingleObject(ScanEvent, FALSE, ScanIntervalSeconds ? &timeout : NULL);
@@ -408,16 +347,10 @@ static NTSTATUS NTAPI ScanThreadStart(_In_ PVOID Parameter)
         }
 
         MbScanPfns(scan, TRUE);
-        ResolveFileNames(scan, names);
-
-        for (ULONG i = 0; i < MB_MAX_FILES; i++)
-            if (names[i]) resolved++;
 
         PhAcquireQueuedLockExclusive(&ScanLock);
         oldScan = LastScan;
-        memcpy(oldNames, FileNames, sizeof(FileNames));
         LastScan = scan;
-        memcpy(FileNames, names, sizeof(FileNames));
         ScanSequence++;
         PhReleaseQueuedLockExclusive(&ScanLock);
 
@@ -426,10 +359,8 @@ static NTSTATUS NTAPI ScanThreadStart(_In_ PVOID Parameter)
 
         if (oldScan)
             PhFree(oldScan);
-        for (ULONG i = 0; i < MB_MAX_FILES; i++)
-            PhClearReference(&oldNames[i]);
 
-        WriteScanLog(scan, resolved);
+        WriteScanLog(scan);
     }
 
     return STATUS_SUCCESS;
@@ -950,15 +881,10 @@ static VOID UpdateFilesList(VOID)
             PMB_FILE_USAGE file = &scan->TopFiles[i];
             PLIST_ROW row = &Rows[count++];
 
-            if (FileNames[i])
-            {
-                CopyText(row->Name, RTL_NUMBER_OF(row->Name), PhGetString(FileNames[i]));
-            }
-            else
             {
                 PH_FORMAT format[2];
 
-                PhInitFormatS(&format[0], L"(no open handle: file closed, or opened by the kernel) #");
+                PhInitFormatS(&format[0], L"Cached file ");
                 PhInitFormatU(&format[1], i + 1);
                 if (!PhFormatToBuffer(format, 2, row->Name, sizeof(row->Name), NULL))
                     row->Name[0] = UNICODE_NULL;
@@ -1374,7 +1300,7 @@ static INT_PTR CALLBACK PanelDialogProc(
             static CONST LONG processWidths[] = { 260, 64, 90, 90, 90 };
             static CONST PCWSTR poolColumns[] = { L"Tag", L"Nonpaged", L"Paged", L"Driver", L"Description" };
             static CONST LONG poolWidths[] = { 50, 90, 90, 151, 320 };
-            static CONST PCWSTR fileColumns[] = { L"File", L"Total", L"Active", L"Standby", L"Modified" };
+            static CONST PCWSTR fileColumns[] = { L"File (largest first; names need a kernel driver)", L"Total", L"Active", L"Standby", L"Modified" };
             static CONST LONG fileWidths[] = { 420, 80, 80, 80, 80 };
             LONG dpi = PhGetWindowDpi(WindowHandle);
 
@@ -1388,7 +1314,7 @@ static INT_PTR CALLBACK PanelDialogProc(
             PhAddTabControlTab(Tabs, TabBreakdown, L"Breakdown");
             PhAddTabControlTab(Tabs, TabProcesses, L"Processes");
             PhAddTabControlTab(Tabs, TabPool, L"Pool tags");
-            PhAddTabControlTab(Tabs, TabFiles, L"Cached files");
+            PhAddTabControlTab(Tabs, TabFiles, L"Cached files (unnamed)");
 
             InitList(Lists[TabBreakdown], RTL_NUMBER_OF(breakdownColumns), breakdownColumns, breakdownWidths, dpi);
             InitList(Lists[TabProcesses], RTL_NUMBER_OF(processColumns), processColumns, processWidths, dpi);
