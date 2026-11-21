@@ -44,12 +44,18 @@ ram_gb               value   22
 
 GPU readings come from NVML, so TCC cards such as the Tesla P40 work too, just as in NvTccGpu and GpuMonitor.
 
-Modes:
-- **`value`** sends the whole number to one channel.
-- **`digits`** sends one decimal digit per channel, most significant first, and clips the value to that width
-  (e.g. 2 channels gives 0-99). Use it with themes that draw every digit as its own widget. Some units mirror
-  portrait themes in hardware, and a pre-mirrored theme needs this, because the firmware's left-to-right digit order
-  would otherwise come out reversed.
+Modes (`/MAX` sets the full scale; the default is 100):
+
+| Mode | Sends | Use with |
+|---|---|---|
+| `value` | The whole number, to one channel | A plain number widget |
+| `digits` | One decimal digit per channel, most significant first, clipped to that width (2 channels gives 0-99) | Themes that draw each digit as its own widget, e.g. pre-mirrored themes for units that mirror portrait in hardware (the firmware's digit order would come out reversed) |
+| `level/MAX` | `round(value * 9 / MAX)`, so 0-9 | A number widget whose ten "digit" cells are pictures, e.g. a segmented gauge at 0..9 segments: one channel per gauge |
+| `bar/MAX` | `value * 100 / MAX`, so 0-100 % | A progress-bar widget |
+| `rbar/MAX` | `100 - value * 100 / MAX` | A progress bar on a mirrored unit: the panel fills from the theme's left (the screen's right), so the theme swaps its full and empty pictures |
+
+Several fields may name the same reading in different modes (e.g. `gpu:P40:load` as `digits` and as `level`),
+and one entry may list several channels for `value`/`level`/`bar`/`rbar` (every channel gets the same value).
 
 ## Themes and theme uploads
 

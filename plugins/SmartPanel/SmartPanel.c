@@ -82,6 +82,7 @@ static ULONG GpuCount;
 
 // ---- layout ------------------------------------------------------------------
 
+enum { MODE_VALUE, MODE_DIGITS, MODE_LEVEL, MODE_BAR, MODE_RBAR };
 typedef enum { FieldCpu, FieldRamPct, FieldRamGb, FieldNetDown, FieldNetUp, FieldGpu } FIELD_KIND;
 typedef enum { GpuTemp, GpuLoad, GpuMemLoad, GpuVramGb, GpuVramPct, GpuPower, GpuClock } GPU_METRIC;
 
@@ -90,7 +91,8 @@ typedef struct
     FIELD_KIND Kind;
     GPU_METRIC Metric;
     char GpuName[48];      // substring of the NVML name
-    BOOLEAN Digits;
+    UCHAR Mode;            // MODE_*
+    LONG Max;              // full scale for level/bar/rbar
     ULONG ChannelCount;
     UCHAR Channels[MAX_CHANNELS];
 } PANEL_FIELD;
@@ -284,8 +286,22 @@ static BOOLEAN ParseField(PSTR Line, PANEL_FIELD* Field)
     else
         return FALSE;
 
-    if (!_stricmp(mode, "digits")) Field->Digits = TRUE;
-    else if (_stricmp(mode, "value")) return FALSE;
+    {
+        PSTR slash = strchr(mode, '/');
+
+        Field->Max = 100;
+        if (slash)
+        {
+            *slash++ = 0;
+            Field->Max = max(1, atol(slash));
+        }
+        if (!_stricmp(mode, "digits")) Field->Mode = MODE_DIGITS;
+        else if (!_stricmp(mode, "value")) Field->Mode = MODE_VALUE;
+        else if (!_stricmp(mode, "level")) Field->Mode = MODE_LEVEL;
+        else if (!_stricmp(mode, "bar")) Field->Mode = MODE_BAR;
+        else if (!_stricmp(mode, "rbar")) Field->Mode = MODE_RBAR;
+        else return FALSE;
+    }
 
     while ((token = strtok_s(NULL, " \t\r\n", &context)) && Field->ChannelCount < MAX_CHANNELS)
     {
@@ -476,7 +492,24 @@ static BOOLEAN PanelSendValues(VOID)
         PANEL_FIELD* field = &Fields[i];
         LONG value = max(0, FieldValue(field));
 
-        if (field->Digits)
+        if (field->Mode == MODE_LEVEL || field->Mode == MODE_BAR || field->Mode == MODE_RBAR)
+        {
+            LONG scaled;
+
+            value = min(value, field->Max);
+            if (field->Mode == MODE_LEVEL)
+                scaled = (value * 9 + field->Max / 2) / field->Max;            // 0..9: a gauge picture
+            else
+                scaled = (value * 100 + field->Max / 2) / field->Max;          // 0..100 %
+            if (field->Mode == MODE_RBAR)
+                scaled = 100 - scaled;                                       // bar filling from the other end
+            for (ULONG c = 0; c < field->ChannelCount; c++)
+            {
+                channels[pairCount] = field->Channels[c];
+                values[pairCount++] = (USHORT)scaled;
+            }
+        }
+        else if (field->Mode == MODE_DIGITS)
         {
             LONG limit = 1;
             for (ULONG d = 0; d < field->ChannelCount; d++)
