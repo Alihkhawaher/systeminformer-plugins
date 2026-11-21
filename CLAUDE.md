@@ -90,3 +90,7 @@ Pushes to this public repo need the owner's explicit OK each time.
   checkbox ListView raises ItemChecked while its window is created, on half-built rows (NullReference dialog): the
   handler ignores events until OnShown. Test it with `SetUnhandledExceptionMode(ThrowException)` + `Show()`, or the
   crash only shows as a .NET dialog. A rebuilt DLL never matches the installed one by hash ("Other version").
+- SmartPanel (USB sensor panel 0483:0065): no framebuffer, values only; the theme is built and flashed outside SI
+  (owner's local panel project). Reports are 65 bytes (report id 0 + 64), overlapped WriteFile with a 500 ms wait.
+  Uploaders hold `Local\SmartPanel.Flash`; the plugin closes the device while it exists. A medium-integrity
+  uploader's Local mutex is visible to elevated SI (same session). Needs `hid.lib iphlpapi.lib` (in build.ps1).

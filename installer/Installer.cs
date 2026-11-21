@@ -40,6 +40,7 @@ class InstallerForm : Form
         { "GpuMonitor", "A page per GPU (any GPU, also NVIDIA TCC), per-app GPU load and memory, tray icons. Replaces System Informer's own GPU page." },
         { "DiskMonitor", "One Disks page: a tile per disk, speed, response time, temperature, per-app I/O and SMART health, tray icons." },
         { "MemBreakdown", "Where is my memory going: every physical page by use (like RAMMap), top processes, pool tags, cached files, tray icon." },
+        { "SmartPanel", "Sends live CPU, RAM, network and GPU readings to a 3.5-inch USB sensor panel (0483:0065). Needs a theme already on the panel and a layout file (see its README)." },
         { "NvTccGpu", "Older, NVIDIA TCC/MCDM GPUs only (Tesla P40, A100...). GpuMonitor does all of this: install one or the other." },
     };
     // Plugins that must not be installed together.
@@ -180,7 +181,7 @@ class InstallerForm : Form
 
     static int Order(string name)
     {
-        string[] order = { "GpuMonitor", "DiskMonitor", "MemBreakdown", "NvTccGpu" };
+        string[] order = { "GpuMonitor", "DiskMonitor", "MemBreakdown", "SmartPanel", "NvTccGpu" };
         int i = Array.IndexOf(order, name);
         return i < 0 ? order.Length : i;
     }

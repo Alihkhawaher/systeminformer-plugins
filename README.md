@@ -7,6 +7,7 @@ Third-party plugins for [System Informer](https://github.com/winsiderss/systemin
 | [GpuMonitor](plugins/GpuMonitor/README.md) | One System Information section per GPU (WDDM and NVIDIA TCC), per-app GPU load and memory, NVIDIA power/temp/clocks. Replaces ExtendedTools' GPU page |
 | [DiskMonitor](plugins/DiskMonitor/README.md) | One Disks page: a tile per disk, per-disk speed, active/response time, temperature, per-app I/O (ETW) and SMART health (NVMe, SATA, USB bridges) with Good/Caution/Bad verdict |
 | [MemBreakdown](plugins/MemBreakdown/README.md) | "Where is my memory going?": every physical page by use and list (like RAMMap), top processes, pool tags and cached files, with graphs |
+| [SmartPanel](plugins/SmartPanel/README.md) | Streams CPU, RAM, network and NVIDIA GPU readings once a second to a 3.5" USB HID sensor panel (0483:0065), replacing the vendor app |
 | [NvTccGpu](plugins/NvTccGpu/README.md) | TCC/MCDM NVIDIA GPUs only (Tesla P40, A100, ...). Superseded by GpuMonitor; install one or the other |
 
 ## Install (easy way)
