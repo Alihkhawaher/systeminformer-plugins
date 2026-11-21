@@ -28,15 +28,15 @@ Each release also has a `.zip` with the plain DLLs for `C:\Program Files\SystemI
 ```powershell
 git clone --depth 1 --branch v4.0.26241.138 https://github.com/winsiderss/systeminformer.git vendor\systeminformer
 python tools\make_sdk.py              # SDK headers + SystemInformer.lib -> sdk\
-tools\build.ps1                           # all plugins -> bin\<Name>.dll   (or -Plugin NvTccGpu)
-tools\build.ps1 -Probe                    # bin\memprobe.exe: console check of MemBreakdown's sampling code
+tools\build.ps1                       # all plugins -> bin\<Name>.dll   (or -Plugin NvTccGpu)
+tools\build.ps1 -Probe                # bin\memprobe.exe: console check of MemBreakdown's sampling code
 ```
 
 ## Make a release
 
 ```powershell
-.uild.ps1 -Installer -Version 1.2.0     # all plugins + release\SystemInformerPlugins-Setup-1.2.0.exe and .zip
-powershell -STA -File installer	est-installer.ps1 release\SystemInformerPlugins-Setup-1.2.0.exe   # checks, changes nothing
+tools\build.ps1 -Installer -Version 1.2.0     # all plugins + SystemInformerPlugins-Setup.exe (root) + release\ files
+powershell -STA -File tools\test-installer.ps1 SystemInformerPlugins-Setup.exe   # checks, changes nothing
 ```
 
 The installer (`installer\Installer.cs`, WinForms) is built with the .NET Framework 4 `csc.exe` that ships with
@@ -56,7 +56,7 @@ Both take `-SystemInformerDir` (default `C:\Program Files\SystemInformer`) and `
 ## Things to know
 
 - **Third-party plugins are off by default.** System Informer loads only its own plugins while
-  `EnableDefaultSafePlugins` is `1`. the installer (or `tools\install.ps1`) sets it to `0` (backup: `settings.json.bak-plugins`);
+  `EnableDefaultSafePlugins` is `1`. The installer (or `tools\install.ps1`) sets it to `0` (backup: `settings.json.bak-plugins`);
   removing them (installer or `tools\uninstall.ps1`) sets it back to `1` once no unsigned plugin is left.
 - **The plugins are unsigned.** With one loaded, System Informer's driver runs with reduced protection and shows a
   one-time "unsigned images (likely an unsigned plugin)" warning; some advanced features (details of protected

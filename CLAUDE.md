@@ -86,7 +86,7 @@ Pushes to this public repo need the owner's explicit OK each time.
   name, and `TrayMiniInfoCreate` makes a list section (header + processes sorted by a value) from
   `GeneralCallbackMiniInformationInitializing` (main thread, runs each time the window is created; the name
   pointer is kept, so it must live forever).
-- Installer: Windows' own csc.exe (Framework644.0.30319) is C# 5 only: no `$""`, `?.`, `=>` members. A
+- Installer: Windows' own csc.exe (Framework64\v4.0.30319) is C# 5 only: no `$""`, `?.`, `=>` members. A
   checkbox ListView raises ItemChecked while its window is created, on half-built rows (NullReference dialog): the
   handler ignores events until OnShown. Test it with `SetUnhandledExceptionMode(ThrowException)` + `Show()`, or the
   crash only shows as a .NET dialog. A rebuilt DLL never matches the installed one by hash ("Other version").
