@@ -11,7 +11,7 @@ if (-not $vs) { throw 'Visual Studio not found' }
 if (-not $Plugin) { $Plugin = (Get-ChildItem plugins -Directory).Name }
 
 $defs = '/DWIN64 /DNDEBUG /D_WINDOWS /D_USRDLL /DUNICODE /D_UNICODE /DENABLE_RESTRICTED /DCONST_VTABLE /DSI_NO_WPP'
-$libs = 'SystemInformer.lib ntdll.lib user32.lib gdi32.lib kernel32.lib comctl32.lib shell32.lib advapi32.lib pdh.lib'
+$libs = 'SystemInformer.lib ntdll.lib user32.lib gdi32.lib kernel32.lib comctl32.lib shell32.lib advapi32.lib pdh.lib setupapi.lib cfgmgr32.lib'
 
 foreach ($name in $Plugin) {
     $dir = "plugins\$name"

@@ -40,3 +40,9 @@ Pushes to this public repo need the owner's explicit OK each time.
   loads the functions from gdi32 at runtime; don't add ExtendedTools' folder to the include path (its `resource.h`).
 - install.ps1 `-Remove <Plugin>` deletes replaced plugin DLLs and `-SetSetting 'Name=Value'` edits existing
   settings.json entries in the same elevated run (one UAC prompt, one restart).
+- Don't `#include <winioctl.h>` in a plugin: phdk.h already brings it in, and a second include redefines its GUIDs
+  (C2374). `<ntddscsi.h>` is fine.
+- Not every phlib global is exported to plugins (e.g. `PhWhitespaceStringRef`, `PhSpaceStringRef` link-fail as
+  undeclared): define a local `PH_STRINGREF` instead. Check `SystemInformer.def` before relying on one.
+- SMART code is tested outside System Informer with `plugins\DiskMonitor\test\smarttest.c` (see its README); NVMe
+  reads work unelevated, ATA/USB need admin. Never send a vendor USB-bridge command to an unlisted bridge.
