@@ -71,4 +71,13 @@ VOID SmartEvaluate(
     _Inout_ SMART_STATUS* Status
     );
 
+// etw.c
+VOID DiskEtwStart(VOID);
+VOID DiskEtwStop(VOID);
+ULONG DiskEtwStatus(VOID);
+VOID DiskEtwDrain(
+    _In_ VOID (*Callback)(_In_ ULONG Disk, _In_ ULONG ProcessId, _In_ ULONG64 ReadBytes, _In_ ULONG64 WriteBytes, _In_opt_ PVOID Context),
+    _In_opt_ PVOID Context
+    );
+
 #endif

@@ -1,9 +1,16 @@
 # DiskMonitor
 
-One System Information section **per physical disk**, found automatically (no setup), with SMART health read
-straight from the drive.
+One **Disks** section in System Information for all physical disks (found automatically, no setup):
 
-**Graphs:** read/write speed (two lines), active time, average response time, temperature.
+- **Tiles across the top**, one per disk: name, health, temperature and a read/write mini graph. Click a tile to
+  select that disk; the choice is remembered (`DiskMonitor.SelectedDisk`).
+- **Graphs** of the selected disk: read/write speed (two lines), active time, average response time, temperature.
+- **Apps**: processes doing I/O on the selected disk right now (read/s, write/s); double-click for properties.
+  Read/write tooltips (tiles and graph) name the busiest app at that moment.
+
+Per-app I/O comes from a private ETW system-logger session `SiDiskMonitorSession` with only disk-I/O events
+(Windows 8+, runs beside ExtendedTools' `SiKernelTraceSession`; needs administrator). It is stopped when System
+Informer exits normally; if System Informer is killed, the next start stops and recreates it.
 
 **Panel:**
 - **Health:** Good / Caution / Bad / Unknown with the reasons, using the same rules as the remote support agent's

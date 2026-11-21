@@ -46,3 +46,9 @@ Pushes to this public repo need the owner's explicit OK each time.
   undeclared): define a local `PH_STRINGREF` instead. Check `SystemInformer.def` before relying on one.
 - SMART code is tested outside System Informer with `plugins\DiskMonitor\test\smarttest.c` (see its README); NVMe
   reads work unelevated, ATA/USB need admin. Never send a vendor USB-bridge command to an unlisted bridge.
+- Per-app, per-disk I/O: own ETW session with `EVENT_TRACE_SYSTEM_LOGGER_MODE` + `EVENT_TRACE_FLAG_DISK_IO` (DiskIo
+  opcode 10/11, `IssuingThreadId` -> process via OpenThread/GetProcessIdOfThread, cached). ExtendedTools' session
+  data isn't reachable from other plugins. phnt already defines a `DiskIoGuid` symbol: use another name.
+- `PluginCallbackUnload` runs on normal exit only; a force-killed System Informer leaves an ETW session running, so
+  stop-and-recreate it by name at start. `logman query -ets` lists running sessions.
+- Many disks crammed the sidebar (one section each): use one section with tiles at the top of the page instead.
