@@ -32,3 +32,11 @@ Pushes to this public repo need the owner's explicit OK each time.
   System Informer is restarted in `finally` so a failed install never leaves it stopped.
 - PowerShell 5.1 `Start-Process -Wait` also waits for child processes: the elevated installer's wait never returned
   because it had started System Informer. Use `-PassThru` + `$p.WaitForExit()`.
+- WDDM per-process GPU data: PDH wildcard counters `\GPU Engine(*)\Utilization Percentage` (instance
+  `pid_<pid>_luid_0x<hi>_0x<lo>_phys_<n>_eng_<n>_engtype_<type>`), `\GPU Process Memory(*)\Dedicated Usage`,
+  `\GPU Adapter Memory(*)\Dedicated|Shared Usage`. Use `PDH_FMT_NOCAP100`; collect once at load (rate counter).
+  Adapter load = busiest engine (sum over pids per engine), per-app load = that app's busiest engine (Task Manager).
+- D3DKMT: GpuMonitor declares the few structs it needs (values from ExtendedTools' vendored `d3dkmt\d3dkmthk.h`) and
+  loads the functions from gdi32 at runtime; don't add ExtendedTools' folder to the include path (its `resource.h`).
+- install.ps1 `-Remove <Plugin>` deletes replaced plugin DLLs and `-SetSetting 'Name=Value'` edits existing
+  settings.json entries in the same elevated run (one UAC prompt, one restart).
