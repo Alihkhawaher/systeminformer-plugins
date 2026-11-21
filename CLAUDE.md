@@ -32,3 +32,17 @@ Pushes to this public repo need the owner's explicit OK each time.
   System Informer is restarted in `finally` so a failed install never leaves it stopped.
 - PowerShell 5.1 `Start-Process -Wait` also waits for child processes: the elevated installer's wait never returned
   because it had started System Informer. Use `-PassThru` + `$p.WaitForExit()`.
+- System Informer's KSI process create/exit messages (`PhInformerCallback`) are not exported, and ExtendedTools' ETW
+  session (disk/file/net flags only) can't be shared: ProcessLog runs its own system-logger session
+  (`EVENT_TRACE_SYSTEM_LOGGER_MODE`, unique name + GUID), stopped and replaced at start because install.ps1's kill
+  leaves it running.
+- ETW real-time events are NOT in order across CPUs: a reused PID's Start can arrive before the End of its previous
+  owner, and a process's End before its own Start. Match processes by PID + UniqueProcessKey, never by PID alone.
+- Kernel MOF payload layouts can be read without admin: `Get-CimClass -Namespace root\wmi -ClassName
+  Process_V4_TypeGroup1` (field order = WmiDataId). Without `PROCESS_TRACE_MODE_RAW_TIMESTAMP` the event TimeStamp
+  is a FILETIME.
+- System Informer integer settings are hex strings (`L"20"` = 32).
+- Reading a log System Informer has open from PowerShell needs FileShare ReadWrite (`[IO.File]::Open(p,'Open',
+  'Read','ReadWrite,Delete')`); `ReadAllLines` fails. Test via the plugin's files, never paste real command lines.
+- In a worktree, `vendor` may be a junction to the main checkout's clone: remove it with `cmd /c rmdir vendor`
+  before deleting the worktree so a recursive delete can't follow it.

@@ -5,6 +5,7 @@ Third-party plugins for [System Informer](https://github.com/winsiderss/systemin
 | Plugin | What it does |
 |---|---|
 | [NvTccGpu](plugins/NvTccGpu/README.md) | Shows NVIDIA GPUs in TCC/MCDM mode (Tesla P40, A100, ...) in System Information, via NVML |
+| [ProcessLog](plugins/ProcessLog/README.md) | Logs every process start and exit from ETW kernel events, including processes that live only milliseconds; searchable list, CSV export (Tools > Process log) |
 
 ## Requirements
 
