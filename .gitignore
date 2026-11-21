@@ -2,5 +2,6 @@ vendor/
 sdk/
 obj/
 bin/
-install.log
+SystemInformerPlugins-Setup.exe
 release/
+install.log

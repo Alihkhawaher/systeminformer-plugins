@@ -20,4 +20,4 @@ Per-app GPU load (%) is not available: NVIDIA does not report per-process utiliz
 Identical cards are numbered (`P40 #0`, `P40 #1`). Temperature follows ExtendedTools' Fahrenheit option.
 WDDM GPUs are skipped because System Informer already shows them; set `NvTccGpu.ShowWddmGpus` to `1` to list them too.
 
-Build and install: see the [repository README](../../README.md) (`.\build.ps1 -Plugin NvTccGpu`, `.\install.ps1 -Plugin NvTccGpu`).
+Build and install: see the [repository README](../../README.md) (`tools\build.ps1 -Plugin NvTccGpu`, `tools\install.ps1 -Plugin NvTccGpu`).

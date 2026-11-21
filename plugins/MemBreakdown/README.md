@@ -63,7 +63,7 @@ Information) whose rows add up to the installed RAM, a live version of RAMMap's 
 `tools\memprobe` builds the same sampling code as a console program:
 
 ```powershell
-.\build.ps1 -Probe
+tools\build.ps1 -Probe
 bin\memprobe.exe out.txt    # run elevated
 ```
 

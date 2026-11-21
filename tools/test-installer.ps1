@@ -1,6 +1,6 @@
 # Checks a built installer without changing anything: loads the exe as an assembly (no elevation, no window shown),
 # lists the embedded plugins with the status it detects, and runs its settings / exclusivity logic on test data.
-#   powershell -STA -File installer\test-installer.ps1 release\SystemInformerPlugins-Setup-1.2.0.exe
+#   powershell -STA -File tools\test-installer.ps1 SystemInformerPlugins-Setup.exe
 param([Parameter(Mandatory)][string]$Exe)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms

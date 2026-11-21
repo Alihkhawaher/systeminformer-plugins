@@ -1,7 +1,7 @@
 # Installs bin\<Name>.dll into System Informer's plugins folder and lets it load third-party plugins.
-#   .\install.ps1                  # every built plugin in bin\
-#   .\install.ps1 -Plugin NvTccGpu
-#   .\install.ps1 -Plugin GpuMonitor -Remove NvTccGpu -SetSetting 'ExtendedTools.EnableGpuMonitor=0'
+#   tools\install.ps1                  # every built plugin in bin\
+#   tools\install.ps1 -Plugin NvTccGpu
+#   tools\install.ps1 -Plugin GpuMonitor -Remove NvTccGpu -SetSetting 'ExtendedTools.EnableGpuMonitor=0'
 #     -Remove      plugin DLLs to delete from System Informer in the same run
 #     -SetSetting  'Name=Value' entries to change in settings.json (only existing settings)
 # Self-elevates (one UAC prompt). Stops System Informer and starts it again. Undo with uninstall.ps1.
@@ -13,7 +13,8 @@ param(
     [string]$SettingsPath = "$env:APPDATA\SystemInformer\settings.json"
 )
 $ErrorActionPreference = 'Stop'
-if (-not $Plugin) { $Plugin = (Get-ChildItem (Join-Path $PSScriptRoot 'bin') -Filter *.dll).BaseName }
+$root = Split-Path $PSScriptRoot   # repo root (bin, plugins)
+if (-not $Plugin) { $Plugin = (Get-ChildItem (Join-Path $root 'bin') -Filter *.dll).BaseName }
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
@@ -31,12 +32,13 @@ $Plugin = $Plugin -split ','
 $Remove = @($Remove -split ',' | Where-Object { $_ })
 $SetSetting = @($SetSetting -split ';' | Where-Object { $_ })
 
-$log = Join-Path $PSScriptRoot 'install.log'
+New-Item -ItemType Directory -Force (Join-Path $root 'obj') | Out-Null
+$log = Join-Path $root 'obj\install.log'
 "$(Get-Date -Format s) install $($Plugin -join ', ')" | Out-File $log
 
 try {
     foreach ($name in $Plugin) {
-        if (-not (Test-Path (Join-Path $PSScriptRoot "bin\$name.dll"))) { throw "missing bin\$name.dll - run build.ps1" }
+        if (-not (Test-Path (Join-Path $root "bin\$name.dll"))) { throw "missing bin\$name.dll - run tools\build.ps1" }
     }
 
     # 1. Stop System Informer (HideOnClose would only hide it) so it can't overwrite settings on exit.
@@ -71,7 +73,7 @@ try {
     foreach ($name in $Plugin) {
         $target = Join-Path $SystemInformerDir "plugins\$name.dll"
         for ($try = 1; ; $try++) {
-            try { Copy-Item (Join-Path $PSScriptRoot "bin\$name.dll") $target -Force; break }
+            try { Copy-Item (Join-Path $root "bin\$name.dll") $target -Force; break }
             catch {
                 if ($try -ge 20) {
                     $holders = Get-Process | Where-Object { try { $_.Modules.FileName -contains $target } catch { $false } }

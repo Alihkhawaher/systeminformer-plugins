@@ -3,7 +3,7 @@
  * System Informer. Prints the fast counters, runs one PFN scan, prints the use x list matrix and checks the
  * scan's list totals against SystemMemoryListInformation. It also checks the ETW file-name lookup; only file extensions are printed, never paths.
  *
- *   .\build.ps1 -Probe                 -> bin\memprobe.exe
+ *   tools\build.ps1 -Probe                 -> bin\memprobe.exe
  *   bin\memprobe.exe [output.txt]      (run elevated: needs admin for the PFN query)
  */
 

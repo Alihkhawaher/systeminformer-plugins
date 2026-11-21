@@ -32,8 +32,8 @@ cards are matched to their NVML device by PCI bus number.
 ## Install
 
 ```powershell
-.\build.ps1 -Plugin GpuMonitor
-.\install.ps1 -Plugin GpuMonitor -Remove NvTccGpu -SetSetting 'ExtendedTools.EnableGpuMonitor=0'
+tools\build.ps1 -Plugin GpuMonitor
+tools\install.ps1 -Plugin GpuMonitor -Remove NvTccGpu -SetSetting 'ExtendedTools.EnableGpuMonitor=0'
 ```
 
 `ExtendedTools.EnableGpuMonitor=0` turns off ExtendedTools' own GPU page (and its per-process GPU columns in the

@@ -1,6 +1,6 @@
 # Removes plugins installed by install.ps1.
-#   .\uninstall.ps1                  # every plugin under plugins\
-#   .\uninstall.ps1 -Plugin NvTccGpu
+#   tools\uninstall.ps1                  # every plugin under plugins\
+#   tools\uninstall.ps1 -Plugin NvTccGpu
 # When none of this repo's plugins remain, restores EnableDefaultSafePlugins=1 (System Informer's default).
 # Self-elevates (one UAC prompt).
 param(
@@ -9,7 +9,8 @@ param(
     [string]$SettingsPath = "$env:APPDATA\SystemInformer\settings.json"
 )
 $ErrorActionPreference = 'Stop'
-$all = (Get-ChildItem (Join-Path $PSScriptRoot 'plugins') -Directory).Name
+$root = Split-Path $PSScriptRoot   # repo root
+$all = (Get-ChildItem (Join-Path $root 'plugins') -Directory).Name
 if (-not $Plugin) { $Plugin = $all }
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)

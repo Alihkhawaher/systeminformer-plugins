@@ -1,14 +1,15 @@
 # Builds plugins\<Name>\*.c + <Name>.rc into bin\<Name>.dll (x64 Release) against sdk\ (tools\make_sdk.py).
-#   .\build.ps1                 # every plugin under plugins\
-#   .\build.ps1 -Plugin NvTccGpu
-#   .\build.ps1 -Probe          # only bin\memprobe.exe (console check of plugins\MemBreakdown\memcore.c)
-#   .\build.ps1 -Installer -Version 1.2.0
-#       every plugin, then release\SystemInformerPlugins-Setup-<Version>.exe (installer\Installer.cs, the DLLs
-#       embedded; built with the .NET Framework csc.exe that ships with Windows) and
-#       release\SystemInformerPlugins-<Version>.zip (the DLLs).
+#   tools\build.ps1                 # every plugin under plugins\
+#   tools\build.ps1 -Plugin NvTccGpu
+#   tools\build.ps1 -Probe          # only bin\memprobe.exe (console check of plugins\MemBreakdown\memcore.c)
+#   tools\build.ps1 -Installer -Version 1.2.0
+#       every plugin, then SystemInformerPlugins-Setup.exe in the repo root (installer\Installer.cs with the DLLs
+#       embedded, built with the .NET Framework csc.exe that ships with Windows; the file the owner runs), and for a
+#       GitHub release release\SystemInformerPlugins-Setup-<Version>.exe + release\SystemInformerPlugins-<Version>.zip.
 param([string[]]$Plugin, [switch]$Probe, [switch]$Installer, [string]$Version)
 $ErrorActionPreference = 'Stop'
-Set-Location $PSScriptRoot
+$root = Split-Path $PSScriptRoot   # the repo root: the paths below are relative to it
+Set-Location $root
 
 $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
 if (-not $vs) { throw 'Visual Studio not found' }
@@ -64,13 +65,14 @@ if ($Installer) {
     $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
     New-Item -ItemType Directory -Force release, obj\installer | Out-Null
     $src = (Get-Content installer\Installer.cs -Raw) -replace '@VERSION@', $Version -replace '@SIVERSION@', $siVersion
-    [IO.File]::WriteAllText("$PSScriptRoot\obj\installer\Installer.cs", $src, (New-Object Text.UTF8Encoding $false))
+    [IO.File]::WriteAllText("$root\obj\installer\Installer.cs", $src, (New-Object Text.UTF8Encoding $false))
     $exe = "release\SystemInformerPlugins-Setup-$Version.exe"
     $res = $Plugin | ForEach-Object { "/resource:bin\$_.dll,plugin.$_.dll" }
     & $csc /nologo /target:winexe /optimize+ /platform:anycpu "/out:$exe" /win32manifest:installer\app.manifest `
         /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll $res obj\installer\Installer.cs
     if ($LASTEXITCODE) { throw "installer build failed ($LASTEXITCODE)" }
-    "Built $exe (System Informer $siVersion)"
+    Copy-Item $exe SystemInformerPlugins-Setup.exe -Force
+    "Built SystemInformerPlugins-Setup.exe and $exe (System Informer $siVersion)"
     $zip = "release\SystemInformerPlugins-$Version.zip"
     Remove-Item $zip -ErrorAction SilentlyContinue
     Compress-Archive -Path ($Plugin | ForEach-Object { "bin\$_.dll" }) -DestinationPath $zip
