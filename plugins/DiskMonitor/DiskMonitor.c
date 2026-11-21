@@ -1173,7 +1173,7 @@ static VOID UpdatePanel(VOID)
 
     if (smart->PowerOnHours != ULLONG_MAX)
     {
-        _snwprintf_s(text, RTL_NUMBER_OF(text), _TRUNCATE, L"%I64u h (%.1f y)", smart->PowerOnHours, smart->PowerOnHours / 8766.0);
+        _snwprintf_s(text, RTL_NUMBER_OF(text), _TRUNCATE, L"%I64u h", smart->PowerOnHours);
         PhSetDialogItemText(Page.Panel, IDC_POWERON_V, text);
     }
     else
