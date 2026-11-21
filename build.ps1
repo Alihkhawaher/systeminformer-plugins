@@ -1,13 +1,26 @@
 # Builds plugins\<Name>\*.c + <Name>.rc into bin\<Name>.dll (x64 Release) against sdk\ (tools\make_sdk.py).
 #   .\build.ps1                 # every plugin under plugins\
 #   .\build.ps1 -Plugin NvTccGpu
-param([string[]]$Plugin)
+#   .\build.ps1 -Probe          # only bin\memprobe.exe (console check of plugins\MemBreakdown\memcore.c)
+param([string[]]$Plugin, [switch]$Probe)
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
-if (-not (Test-Path sdk\lib\SystemInformer.lib)) { throw 'sdk\ missing - run: python tools\make_sdk.py' }
 $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
 if (-not $vs) { throw 'Visual Studio not found' }
+
+if ($Probe) {
+    New-Item -ItemType Directory -Force bin, obj\memprobe | Out-Null
+    $step = 'cl /nologo /std:clatest /O2 /MT /W3 /utf-8 /DWIN64 /DNDEBUG /DUNICODE /D_UNICODE ' +
+        '/I vendor\systeminformer\phnt\include /I plugins\MemBreakdown /Foobj\memprobe\ /Febin\memprobe.exe ' +
+        'tools\memprobe\memprobe.c plugins\MemBreakdown\memcore.c ntdll.lib kernel32.lib'
+    cmd /c ("call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul 2>&1 && " + $step)
+    if ($LASTEXITCODE) { throw "memprobe build failed ($LASTEXITCODE)" }
+    'Built bin\memprobe.exe'
+    return
+}
+
+if (-not (Test-Path sdk\lib\SystemInformer.lib)) { throw 'sdk\ missing - run: python tools\make_sdk.py' }
 if (-not $Plugin) { $Plugin = (Get-ChildItem plugins -Directory).Name }
 
 $defs = '/DWIN64 /DNDEBUG /D_WINDOWS /D_USRDLL /DUNICODE /D_UNICODE /DENABLE_RESTRICTED /DCONST_VTABLE /DSI_NO_WPP'

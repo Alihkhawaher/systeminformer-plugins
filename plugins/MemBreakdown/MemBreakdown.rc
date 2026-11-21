@@ -1,0 +1,59 @@
+#include "resource.h"
+#include <winres.h>
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+
+IDD_MEMBD_DIALOG DIALOGEX 0, 0, 315, 300
+STYLE DS_SETFONT | DS_FIXEDSYS | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+CAPTION "Memory breakdown"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "Memory breakdown",IDC_TITLE,0,0,160,21
+    RTEXT           "-",IDC_SUBTITLE,163,4,152,16,SS_WORDELLIPSIS
+    CONTROL         "",IDC_GRAPH_LAYOUT,"Static",SS_NOTIFY | NOT WS_VISIBLE,0,22,315,120
+    LTEXT           "Panel layout",IDC_PANEL_LAYOUT,0,146,315,154,NOT WS_VISIBLE
+    LTEXT           "Process private working sets:",IDC_LABEL0,73,0,240,8
+    LTEXT           "Other in use (kernel, drivers, mapped files):",IDC_LABEL1,73,5,240,8
+    LTEXT           "Standby (file cache):",IDC_LABEL2,73,11,240,8
+    LTEXT           "Modified (waiting to be written):",IDC_LABEL3,73,16,240,8
+    LTEXT           "Free and zeroed:",IDC_LABEL4,73,22,240,8
+END
+
+IDD_MEMBD_PANEL DIALOGEX 0, 0, 315, 154
+STYLE DS_SETFONT | DS_FIXEDSYS | DS_CONTROL | WS_CHILD | WS_SYSMENU
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "-",IDC_STATUS,0,0,315,10,SS_ENDELLIPSIS | SS_NOPREFIX
+    CONTROL         "",IDC_LIST_BREAKDOWN,"SysListView32",LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_BORDER | WS_TABSTOP,4,28,307,122
+    CONTROL         "",IDC_LIST_PROCESSES,"SysListView32",LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_BORDER | WS_TABSTOP | NOT WS_VISIBLE,4,28,307,122
+    CONTROL         "",IDC_LIST_POOL,"SysListView32",LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_BORDER | WS_TABSTOP | NOT WS_VISIBLE,4,28,307,122
+    CONTROL         "",IDC_LIST_FILES,"SysListView32",LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_BORDER | WS_TABSTOP | NOT WS_VISIBLE,4,28,307,122
+    CONTROL         "",IDC_TABS,"SysTabControl32",WS_TABSTOP | WS_CLIPSIBLINGS,0,12,315,142
+END
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,0
+ PRODUCTVERSION 1,0,0,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x2L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "FileDescription", "Physical memory breakdown plugin for System Informer"
+            VALUE "FileVersion", "1.0.0.0"
+            VALUE "InternalName", "MemBreakdown"
+            VALUE "OriginalFilename", "MemBreakdown.dll"
+            VALUE "ProductName", "systeminformer-plugins"
+            VALUE "ProductVersion", "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
