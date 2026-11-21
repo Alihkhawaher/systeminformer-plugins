@@ -32,6 +32,26 @@ Pushes to this public repo need the owner's explicit OK each time.
   System Informer is restarted in `finally` so a failed install never leaves it stopped.
 - PowerShell 5.1 `Start-Process -Wait` also waits for child processes: the elevated installer's wait never returned
   because it had started System Informer. Use `-PassThru` + `$p.WaitForExit()`.
+- WDDM per-process GPU data: PDH wildcard counters `\GPU Engine(*)\Utilization Percentage` (instance
+  `pid_<pid>_luid_0x<hi>_0x<lo>_phys_<n>_eng_<n>_engtype_<type>`), `\GPU Process Memory(*)\Dedicated Usage`,
+  `\GPU Adapter Memory(*)\Dedicated|Shared Usage`. Use `PDH_FMT_NOCAP100`; collect once at load (rate counter).
+  Adapter load = busiest engine (sum over pids per engine), per-app load = that app's busiest engine (Task Manager).
+- D3DKMT: GpuMonitor declares the few structs it needs (values from ExtendedTools' vendored `d3dkmt\d3dkmthk.h`) and
+  loads the functions from gdi32 at runtime; don't add ExtendedTools' folder to the include path (its `resource.h`).
+- install.ps1 `-Remove <Plugin>` deletes replaced plugin DLLs and `-SetSetting 'Name=Value'` edits existing
+  settings.json entries in the same elevated run (one UAC prompt, one restart).
+- Don't `#include <winioctl.h>` in a plugin: phdk.h already brings it in, and a second include redefines its GUIDs
+  (C2374). `<ntddscsi.h>` is fine.
+- Not every phlib global is exported to plugins (e.g. `PhWhitespaceStringRef`, `PhSpaceStringRef` link-fail as
+  undeclared): define a local `PH_STRINGREF` instead. Check `SystemInformer.def` before relying on one.
+- SMART code is tested outside System Informer with `plugins\DiskMonitor\test\smarttest.c` (see its README); NVMe
+  reads work unelevated, ATA/USB need admin. Never send a vendor USB-bridge command to an unlisted bridge.
+- Per-app, per-disk I/O: own ETW session with `EVENT_TRACE_SYSTEM_LOGGER_MODE` + `EVENT_TRACE_FLAG_DISK_IO` (DiskIo
+  opcode 10/11, `IssuingThreadId` -> process via OpenThread/GetProcessIdOfThread, cached). ExtendedTools' session
+  data isn't reachable from other plugins. phnt already defines a `DiskIoGuid` symbol: use another name.
+- `PluginCallbackUnload` runs on normal exit only; a force-killed System Informer leaves an ETW session running, so
+  stop-and-recreate it by name at start. `logman query -ets` lists running sessions.
+- Many disks crammed the sidebar (one section each): use one section with tiles at the top of the page instead.
 - MemBreakdown PFN scan: `SystemSuperfetchInformation` with `SuperfetchMemoryRangesQuery` (V1 fails on Win10 19045,
   V2 works) then `SuperfetchPfnQuery` in 64K-PFN chunks (PFNs go in `PageFrameIndex`, `RequestFlags` 1). Needs admin
   + SeProfileSingleProcessPrivilege (System Informer enables it). 128 GB = ~4 s; run it off the UI/provider thread.

@@ -1,11 +1,13 @@
-﻿# systeminformer-plugins
+# systeminformer-plugins
 
 Third-party plugins for [System Informer](https://github.com/winsiderss/systeminformer) (Windows x64).
 
 | Plugin | What it does |
 |---|---|
-| [NvTccGpu](plugins/NvTccGpu/README.md) | Shows NVIDIA GPUs in TCC/MCDM mode (Tesla P40, A100, ...) in System Information, via NVML |
+| [GpuMonitor](plugins/GpuMonitor/README.md) | One System Information section per GPU (WDDM and NVIDIA TCC), per-app GPU load and memory, NVIDIA power/temp/clocks. Replaces ExtendedTools' GPU page |
+| [DiskMonitor](plugins/DiskMonitor/README.md) | One Disks page: a tile per disk, per-disk speed, active/response time, temperature, per-app I/O (ETW) and SMART health (NVMe, SATA, USB bridges) with Good/Caution/Bad verdict |
 | [MemBreakdown](plugins/MemBreakdown/README.md) | "Where is my memory going?": every physical page by use and list (like RAMMap), top processes, pool tags and cached files, with graphs |
+| [NvTccGpu](plugins/NvTccGpu/README.md) | TCC/MCDM NVIDIA GPUs only (Tesla P40, A100, ...). Superseded by GpuMonitor; install one or the other |
 
 ## Requirements
 
@@ -24,7 +26,8 @@ python tools\make_sdk.py              # SDK headers + SystemInformer.lib -> sdk\
 ## Install / uninstall
 
 ```powershell
-.\install.ps1                  # all built plugins (or -Plugin NvTccGpu); UAC prompt, restarts System Informer
+.\install.ps1                  # all built plugins (or -Plugin GpuMonitor); UAC prompt, restarts System Informer
+.\install.ps1 -Plugin GpuMonitor -Remove NvTccGpu -SetSetting 'ExtendedTools.EnableGpuMonitor=0'
 .\uninstall.ps1                # all (or -Plugin NvTccGpu)
 ```
 
