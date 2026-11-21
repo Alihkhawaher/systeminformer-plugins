@@ -10,6 +10,12 @@ Each TCC GPU gets its own section with:
 
 - graphs: GPU load, dedicated memory, memory-controller (bandwidth) load, power, temperature
 - a panel: memory used/total, power draw/limit, SM and memory clocks, driver model, fan (or "Passive")
+- an **Apps** list: every process using the GPU with its PID and GPU memory, largest first; double-click opens the
+  process properties
+- the GPU and memory graph tooltips name the app holding the most GPU memory at that moment; double-click a graph to
+  open that process
+
+Per-app GPU load (%) is not available: NVIDIA does not report per-process utilization on Windows.
 
 Identical cards are numbered (`P40 #0`, `P40 #1`). Temperature follows ExtendedTools' Fahrenheit option.
 WDDM GPUs are skipped because System Informer already shows them; set `NvTccGpu.ShowWddmGpus` to `1` to list them too.

@@ -14,9 +14,11 @@ if (-not $Plugin) { $Plugin = $all }
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    $p = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList @(
+    # No -Wait: in PowerShell 5.1 it also waits for children, i.e. the System Informer we start.
+    $p = Start-Process powershell -Verb RunAs -PassThru -ArgumentList @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"",
         '-Plugin', ($Plugin -join ','), '-SystemInformerDir', "`"$SystemInformerDir`"", '-SettingsPath', "`"$SettingsPath`"")
+    $p.WaitForExit()
     exit $p.ExitCode
 }
 $Plugin = $Plugin -split ','

@@ -26,3 +26,9 @@ Pushes to this public repo need the owner's explicit OK each time.
   plugin isn't loaded): check with `PhFindPlugin2` and guard with `__try`.
 - `vcvars64.bat` prints a harmless "vswhere.exe is not recognized" on stderr; build.ps1 sends it to nul.
 - NVML: `nvmlDeviceGetDriverModel` current 0=WDDM, 1=TCC (WDM), 2=MCDM. P40 has no fan sensor (GetFanSpeed fails).
+- NVML per-process: `nvmlDeviceGetComputeRunningProcesses_v3/_v2` (4-field struct) or the original (2-field) gives
+  pid + VRAM, also in TCC. Per-process load % (`nvidia-smi pmon`, process utilization) is "Not supported" on Windows.
+- install.ps1: the old DLL can stay locked a few seconds after System Informer is killed (copy retries 20 s), and
+  System Informer is restarted in `finally` so a failed install never leaves it stopped.
+- PowerShell 5.1 `Start-Process -Wait` also waits for child processes: the elevated installer's wait never returned
+  because it had started System Informer. Use `-PassThru` + `$p.WaitForExit()`.

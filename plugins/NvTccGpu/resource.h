@@ -19,6 +19,7 @@
 #define IDC_MEMCLOCK_V          1025
 #define IDC_FAN_V               1026
 #define IDC_DRIVER_V            1027
+#define IDC_APPS                1028
 
 #ifndef IDC_STATIC
 #define IDC_STATIC              (-1)

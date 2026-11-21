@@ -12,9 +12,11 @@ if (-not $Plugin) { $Plugin = (Get-ChildItem (Join-Path $PSScriptRoot 'bin') -Fi
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    $p = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList @(
+    # No -Wait: in PowerShell 5.1 it also waits for children, i.e. the System Informer we start.
+    $p = Start-Process powershell -Verb RunAs -PassThru -ArgumentList @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"",
         '-Plugin', ($Plugin -join ','), '-SystemInformerDir', "`"$SystemInformerDir`"", '-SettingsPath', "`"$SettingsPath`"")
+    $p.WaitForExit()
     exit $p.ExitCode
 }
 $Plugin = $Plugin -split ','
@@ -45,17 +47,30 @@ try {
         "settings file not found: $SettingsPath (set EnableDefaultSafePlugins to 0 in System Informer)" | Out-File $log -Append
     }
 
-    # 3. Copy the plugins.
+    # 3. Copy the plugins. The old DLL can stay locked for a few seconds after System Informer exits: retry.
     foreach ($name in $Plugin) {
-        Copy-Item (Join-Path $PSScriptRoot "bin\$name.dll") (Join-Path $SystemInformerDir "plugins\$name.dll") -Force
-        "copied $name.dll" | Out-File $log -Append
+        $target = Join-Path $SystemInformerDir "plugins\$name.dll"
+        for ($try = 1; ; $try++) {
+            try { Copy-Item (Join-Path $PSScriptRoot "bin\$name.dll") $target -Force; break }
+            catch {
+                if ($try -ge 20) {
+                    $holders = Get-Process | Where-Object { try { $_.Modules.FileName -contains $target } catch { $false } }
+                    throw "$name.dll still locked after 20 s (held by: $(($holders | ForEach-Object { "$($_.Name) $($_.Id)" }) -join ', '))"
+                }
+                Start-Sleep -Seconds 1
+            }
+        }
+        "copied $name.dll (attempt $try)" | Out-File $log -Append
     }
-
-    # 4. Start System Informer again.
-    Start-Process (Join-Path $SystemInformerDir 'SystemInformer.exe')
-    "started SystemInformer" | Out-File $log -Append
+    $failed = $false
 }
 catch {
     "ERROR: $_" | Out-File $log -Append
-    exit 1
+    $failed = $true
 }
+finally {
+    # 4. Always start System Informer again, even after an error.
+    Start-Process (Join-Path $SystemInformerDir 'SystemInformer.exe')
+    "started SystemInformer" | Out-File $log -Append
+}
+if ($failed) { exit 1 }
