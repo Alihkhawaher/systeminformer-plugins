@@ -48,6 +48,7 @@ typedef struct _LOG_ENTRY
     PWSTR ImagePath;
     PWSTR CommandLine;
     PWSTR User;
+    ULONG64 ChangeStamp;    // PlChangeStamp when last added or changed (for incremental view updates)
     struct _LOG_ENTRY *HashNext;
 } LOG_ENTRY, *PLOG_ENTRY;
 
@@ -70,6 +71,8 @@ extern SRWLOCK PlLock;
 extern PLOG_ENTRY *PlEntries;   // in Seq order
 extern ULONG PlEntryCount;
 extern volatile LONG PlVersion; // bumped on every change
+extern ULONG64 PlChangeStamp;   // last ChangeStamp given out
+extern ULONG PlTrimCount;       // bumped when old entries are dropped
 extern WCHAR PlLogFilePath[MAX_PATH];
 
 VOID PlStartCapture(VOID);

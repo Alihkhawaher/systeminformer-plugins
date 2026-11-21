@@ -53,6 +53,9 @@ static ULONG64 *PlView = NULL;
 static ULONG PlViewCount = 0;
 static ULONG PlViewCapacity = 0;
 static LONG PlViewVersion = -1;
+static ULONG64 PlViewStamp = 0;   // PlChangeStamp the view reflects
+static ULONG PlViewTrims = 0;
+static ULONG64 PlViewMaxSeq = 0;  // newest entry the view has considered; newer ones cannot be in it yet
 static ULONG PlSortColumn = COL_START;
 static BOOLEAN PlSortAscending = FALSE;
 static WCHAR PlSearch[256];
@@ -420,6 +423,9 @@ static VOID PlpRebuildView(
         PlView[i] = items[i]->Seq;
 
     PlViewCount = count;
+    PlViewStamp = PlChangeStamp;
+    PlViewTrims = PlTrimCount;
+    PlViewMaxSeq = PlEntryCount ? PlEntries[PlEntryCount - 1]->Seq : 0;
     ReleaseSRWLockShared(&PlLock);
     free(items);
 
@@ -463,6 +469,241 @@ static VOID PlpRebuildView(
     InvalidateRect(PlList, NULL, FALSE);
     free(selected);
 
+    PlpUpdateStatus();
+}
+
+static int PlpCompareTwo(
+    _In_ PLOG_ENTRY A,
+    _In_ PLOG_ENTRY B
+    )
+{
+    return PlpCompareEntries(&A, &B);
+}
+
+static LONG PlpFindInView(
+    _In_ ULONG64 Seq
+    )
+{
+    for (ULONG i = 0; i < PlViewCount; i++)
+    {
+        if (PlView[i] == Seq)
+            return (LONG)i;
+    }
+
+    return -1;
+}
+
+// TRUE when Entry, at view row Index, still sorts between its neighbours (PlLock held).
+static BOOLEAN PlpInOrderAt(
+    _In_ PLOG_ENTRY Entry,
+    _In_ ULONG Index
+    )
+{
+    PLOG_ENTRY other;
+
+    if (Index > 0 && (other = PlFindEntryBySeq(PlView[Index - 1])) && PlpCompareTwo(other, Entry) > 0)
+        return FALSE;
+    if (Index + 1 < PlViewCount && (other = PlFindEntryBySeq(PlView[Index + 1])) && PlpCompareTwo(Entry, other) > 0)
+        return FALSE;
+
+    return TRUE;
+}
+
+static BOOLEAN PlpViewInsert(
+    _In_ PLOG_ENTRY Entry,
+    _Out_ PULONG Position
+    )
+{
+    ULONG low = 0;
+    ULONG high = PlViewCount;
+
+    while (low < high)
+    {
+        ULONG mid = (low + high) / 2;
+        PLOG_ENTRY other = PlFindEntryBySeq(PlView[mid]);
+
+        if (other && PlpCompareTwo(other, Entry) <= 0)
+            low = mid + 1;
+        else
+            high = mid;
+    }
+
+    if (PlViewCount == PlViewCapacity)
+    {
+        ULONG capacity = PlViewCapacity ? PlViewCapacity * 2 : 1024;
+        ULONG64 *view = realloc(PlView, capacity * sizeof(ULONG64));
+
+        if (!view)
+            return FALSE;
+
+        PlView = view;
+        PlViewCapacity = capacity;
+    }
+
+    memmove(&PlView[low + 1], &PlView[low], (PlViewCount - low) * sizeof(ULONG64));
+    PlView[low] = Entry->Seq;
+    PlViewCount++;
+    *Position = low;
+    return TRUE;
+}
+
+static VOID PlpViewRemove(
+    _In_ ULONG Index
+    )
+{
+    memmove(&PlView[Index], &PlView[Index + 1], (PlViewCount - Index - 1) * sizeof(ULONG64));
+    PlViewCount--;
+}
+
+// Once a second: apply only what changed since the last refresh (new processes, exits, image paths), keeping
+// the scroll position and selection, and repaint only the visible rows. Filter and sort changes rebuild instead.
+static VOID PlpRefreshView(
+    VOID
+    )
+{
+    LONG oldTop = ListView_GetTopIndex(PlList);
+    LONG perPage = ListView_GetCountPerPage(PlList) + 1;
+    ULONG64 topSeq = (oldTop >= 0 && (ULONG)oldTop < PlViewCount) ? PlView[oldTop] : 0;
+    LONG oldFocus = ListView_GetNextItem(PlList, -1, LVNI_FOCUSED);
+    ULONG64 focusSeq = (oldFocus >= 0 && (ULONG)oldFocus < PlViewCount) ? PlView[oldFocus] : 0;
+    LONG selectedCount = ListView_GetSelectedCount(PlList);
+    LONG *oldSelected = NULL;
+    ULONG64 *selectedSeqs = NULL;
+    LONG oldSelectedCount = 0;
+    BOOLEAN shifted = FALSE;
+    BOOLEAN visibleChanged = FALSE;
+    ULONG i;
+
+    if (PlChangeStamp == PlViewStamp && PlTrimCount == PlViewTrims) // unlocked peek; rechecked below
+    {
+        PlpUpdateStatus();
+        return;
+    }
+
+    if (selectedCount > 1000) // big selections (Ctrl+A): a rebuild is cheaper than moving them one by one
+    {
+        PlpRebuildView(TRUE);
+        return;
+    }
+
+    if (selectedCount > 0)
+    {
+        oldSelected = malloc(selectedCount * sizeof(LONG));
+        selectedSeqs = malloc(selectedCount * sizeof(ULONG64));
+
+        if (oldSelected && selectedSeqs)
+        {
+            for (LONG index = ListView_GetNextItem(PlList, -1, LVNI_SELECTED); index != -1 && oldSelectedCount < selectedCount;
+                index = ListView_GetNextItem(PlList, index, LVNI_SELECTED))
+            {
+                if ((ULONG)index < PlViewCount)
+                {
+                    oldSelected[oldSelectedCount] = index;
+                    selectedSeqs[oldSelectedCount++] = PlView[index];
+                }
+            }
+        }
+    }
+
+    AcquireSRWLockShared(&PlLock);
+
+    // Old entries dropped at the memory cap: take them out of the view.
+    if (PlTrimCount != PlViewTrims)
+    {
+        ULONG j = 0;
+
+        for (i = 0; i < PlViewCount; i++)
+        {
+            if (PlFindEntryBySeq(PlView[i]))
+                PlView[j++] = PlView[i];
+        }
+
+        shifted = j != PlViewCount;
+        PlViewCount = j;
+        PlViewTrims = PlTrimCount;
+    }
+
+    for (i = 0; i < PlEntryCount; i++)
+    {
+        PLOG_ENTRY entry = PlEntries[i];
+        LONG at;
+        BOOLEAN matches;
+        ULONG position;
+
+        if (entry->ChangeStamp <= PlViewStamp)
+            continue;
+
+        at = entry->Seq <= PlViewMaxSeq ? PlpFindInView(entry->Seq) : -1;
+        matches = PlpMatches(entry);
+
+        if (at >= 0)
+        {
+            if (matches && PlpInOrderAt(entry, (ULONG)at))
+            {
+                if (at >= oldTop && at < oldTop + perPage)
+                    visibleChanged = TRUE; // same row, new text (exit time, image path)
+                continue;
+            }
+
+            PlpViewRemove((ULONG)at);
+            shifted = TRUE;
+        }
+
+        if (matches && PlpViewInsert(entry, &position))
+            shifted = TRUE;
+    }
+
+    PlViewStamp = PlChangeStamp;
+    PlViewMaxSeq = PlEntryCount ? PlEntries[PlEntryCount - 1]->Seq : 0;
+    ReleaseSRWLockShared(&PlLock);
+
+    if (shifted)
+    {
+        for (LONG k = 0; k < oldSelectedCount; k++)
+            ListView_SetItemState(PlList, oldSelected[k], 0, LVIS_SELECTED);
+        if (oldFocus >= 0)
+            ListView_SetItemState(PlList, oldFocus, 0, LVIS_FOCUSED);
+
+        ListView_SetItemCountEx(PlList, PlViewCount, LVSICF_NOSCROLL | LVSICF_NOINVALIDATEALL);
+
+        for (LONG k = 0; k < oldSelectedCount; k++)
+        {
+            LONG index = PlpFindInView(selectedSeqs[k]);
+
+            if (index >= 0)
+                ListView_SetItemState(PlList, index, LVIS_SELECTED, LVIS_SELECTED);
+        }
+
+        if (focusSeq)
+        {
+            LONG index = PlpFindInView(focusSeq);
+
+            if (index >= 0)
+                ListView_SetItemState(PlList, index, LVIS_FOCUSED, LVIS_FOCUSED);
+        }
+
+        // Scrolled down: keep the same rows in view. At the top: new rows appear at the top.
+        if (oldTop > 0 && topSeq)
+        {
+            LONG index = PlpFindInView(topSeq);
+            LONG current = ListView_GetTopIndex(PlList);
+            RECT rect;
+
+            if (index >= 0 && index != current && ListView_GetItemRect(PlList, 0, &rect, LVIR_BOUNDS))
+                ListView_Scroll(PlList, 0, (index - current) * (rect.bottom - rect.top));
+        }
+
+        visibleChanged = TRUE;
+    }
+
+    if (visibleChanged && PlViewCount)
+    {
+        LONG top = ListView_GetTopIndex(PlList);
+        ListView_RedrawItems(PlList, top, min(top + perPage, (LONG)PlViewCount - 1));
+    }
+
+    free(oldSelected);
+    free(selectedSeqs);
     PlpUpdateStatus();
 }
 
@@ -846,7 +1087,7 @@ static INT_PTR CALLBACK PlpDlgProc(
         }
         else if (wParam == TIMER_REFRESH)
         {
-            PlpRebuildView(FALSE);
+            PlpRefreshView();
         }
         return TRUE;
     case WM_COMMAND:

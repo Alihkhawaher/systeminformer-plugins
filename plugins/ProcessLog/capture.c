@@ -38,6 +38,8 @@ SRWLOCK PlLock = SRWLOCK_INIT;
 PLOG_ENTRY *PlEntries = NULL;
 ULONG PlEntryCount = 0;
 volatile LONG PlVersion = 0;
+ULONG64 PlChangeStamp = 0;
+ULONG PlTrimCount = 0;
 WCHAR PlLogFilePath[MAX_PATH] = { 0 };
 
 static ULONG PlEntryCapacity = 0;
@@ -393,6 +395,9 @@ static VOID PlpTrim(
     }
 
     PlEntryCount = j;
+
+    if (removed)
+        PlTrimCount++;
 }
 
 static BOOLEAN PlLoading;
@@ -415,6 +420,7 @@ static BOOLEAN PlpAppend(
     }
 
     Entry->Seq = PlNextSeq++;
+    Entry->ChangeStamp = ++PlChangeStamp;
     Entry->Flags |= LE_VISIBLE;
     PlEntries[PlEntryCount++] = Entry;
 
@@ -563,6 +569,9 @@ static VOID PlpWriteRecord(
     PL_BUF line = { 0 };
     PSTR utf8;
     int bytes;
+
+    // Every change the window shows ends in a record write.
+    Entry->ChangeStamp = ++PlChangeStamp;
 
     if (PlFile == INVALID_HANDLE_VALUE)
         return;
