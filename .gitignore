@@ -3,3 +3,4 @@ sdk/
 obj/
 bin/
 install.log
+release/

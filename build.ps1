@@ -2,7 +2,11 @@
 #   .\build.ps1                 # every plugin under plugins\
 #   .\build.ps1 -Plugin NvTccGpu
 #   .\build.ps1 -Probe          # only bin\memprobe.exe (console check of plugins\MemBreakdown\memcore.c)
-param([string[]]$Plugin, [switch]$Probe)
+#   .\build.ps1 -Installer -Version 1.2.0
+#       every plugin, then release\SystemInformerPlugins-Setup-<Version>.exe (installer\Installer.cs, the DLLs
+#       embedded; built with the .NET Framework csc.exe that ships with Windows) and
+#       release\SystemInformerPlugins-<Version>.zip (the DLLs).
+param([string[]]$Plugin, [switch]$Probe, [switch]$Installer, [string]$Version)
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
@@ -21,6 +25,10 @@ if ($Probe) {
 }
 
 if (-not (Test-Path sdk\lib\SystemInformer.lib)) { throw 'sdk\ missing - run: python tools\make_sdk.py' }
+if ($Installer) {
+    if (-not $Version) { throw '-Installer needs -Version (e.g. 1.2.0)' }
+    $Plugin = $null   # a release always has every plugin
+}
 if (-not $Plugin) { $Plugin = (Get-ChildItem plugins -Directory).Name }
 
 $defs = '/DWIN64 /DNDEBUG /D_WINDOWS /D_USRDLL /DUNICODE /D_UNICODE /DENABLE_RESTRICTED /DCONST_VTABLE /DSI_NO_WPP'
@@ -47,4 +55,24 @@ foreach ($name in $Plugin) {
     cmd /c ("call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul 2>&1 && " + ($steps -join ' && '))
     if ($LASTEXITCODE) { throw "$name build failed ($LASTEXITCODE)" }
     "Built bin\$name.dll"
+}
+
+if ($Installer) {
+    # System Informer version the SDK was made from (vendor\systeminformer is a clone of tag v<version>).
+    $siVersion = (git -C vendor\systeminformer describe --tags --exact-match) -replace '^v', ''
+    if ($LASTEXITCODE -or -not $siVersion) { throw 'vendor\systeminformer is not at a release tag' }
+    $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+    New-Item -ItemType Directory -Force release, obj\installer | Out-Null
+    $src = (Get-Content installer\Installer.cs -Raw) -replace '@VERSION@', $Version -replace '@SIVERSION@', $siVersion
+    [IO.File]::WriteAllText("$PSScriptRoot\obj\installer\Installer.cs", $src, (New-Object Text.UTF8Encoding $false))
+    $exe = "release\SystemInformerPlugins-Setup-$Version.exe"
+    $res = $Plugin | ForEach-Object { "/resource:bin\$_.dll,plugin.$_.dll" }
+    & $csc /nologo /target:winexe /optimize+ /platform:anycpu "/out:$exe" /win32manifest:installer\app.manifest `
+        /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll $res obj\installer\Installer.cs
+    if ($LASTEXITCODE) { throw "installer build failed ($LASTEXITCODE)" }
+    "Built $exe (System Informer $siVersion)"
+    $zip = "release\SystemInformerPlugins-$Version.zip"
+    Remove-Item $zip -ErrorAction SilentlyContinue
+    Compress-Archive -Path ($Plugin | ForEach-Object { "bin\$_.dll" }) -DestinationPath $zip
+    "Built $zip"
 }

@@ -11,6 +11,10 @@ Pushes to this public repo need the owner's explicit OK each time.
   tag matching the installed System Informer) and the installed `SystemInformer.exe`.
 - `common\` headers shared by plugins (on build.ps1's include path): `trayicon.h` registers and draws tray icons.
 - `build.ps1` / `install.ps1` / `uninstall.ps1` take `-Plugin`; extend them, don't add per-plugin copies.
+- `installer\Installer.cs`: GUI installer, built by `build.ps1 -Installer -Version x.y.z` into `release\` (gitignored),
+  checked by `installer	est-installer.ps1` (loads the exe as an assembly, changes nothing). Keep its plugin
+  descriptions and the GpuMonitor/NvTccGpu exclusive pair current when plugins change. Releases go to GitHub
+  Releases (`gh release create`), only with the owner's OK.
 
 ## Lessons (don't repeat)
 
@@ -80,3 +84,7 @@ Pushes to this public repo need the owner's explicit OK each time.
   name, and `TrayMiniInfoCreate` makes a list section (header + processes sorted by a value) from
   `GeneralCallbackMiniInformationInitializing` (main thread, runs each time the window is created; the name
   pointer is kept, so it must live forever).
+- Installer: Windows' own csc.exe (Framework644.0.30319) is C# 5 only: no `$""`, `?.`, `=>` members. A
+  checkbox ListView raises ItemChecked while its window is created, on half-built rows (NullReference dialog): the
+  handler ignores events until OnShown. Test it with `SetUnhandledExceptionMode(ThrowException)` + `Show()`, or the
+  crash only shows as a .NET dialog. A rebuilt DLL never matches the installed one by hash ("Other version").

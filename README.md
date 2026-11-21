@@ -9,6 +9,14 @@ Third-party plugins for [System Informer](https://github.com/winsiderss/systemin
 | [MemBreakdown](plugins/MemBreakdown/README.md) | "Where is my memory going?": every physical page by use and list (like RAMMap), top processes, pool tags and cached files, with graphs |
 | [NvTccGpu](plugins/NvTccGpu/README.md) | TCC/MCDM NVIDIA GPUs only (Tesla P40, A100, ...). Superseded by GpuMonitor; install one or the other |
 
+## Install (easy way)
+
+Download `SystemInformerPlugins-Setup-<version>.exe` from [Releases](https://github.com/Alihkhawaher/systeminformer-plugins/releases)
+and run it (it asks for administrator rights). Tick the plugins you want, untick the ones to remove, and click
+**Apply**. It closes System Informer, copies the plugins, allows third-party plugins in its settings and starts it
+again; **Remove all** undoes it. It checks that your System Informer is the version the plugins were built for.
+Each release also has a `.zip` with the plain DLLs for `C:\Program Files\SystemInformer\plugins`.
+
 ## Requirements
 
 - System Informer **4.0.26241.138**. Plugins are built against an exact System Informer version (see below).
@@ -23,7 +31,17 @@ python tools\make_sdk.py              # SDK headers + SystemInformer.lib -> sdk\
 .\build.ps1 -Probe                    # bin\memprobe.exe: console check of MemBreakdown's sampling code
 ```
 
-## Install / uninstall
+## Make a release
+
+```powershell
+.uild.ps1 -Installer -Version 1.2.0     # all plugins + release\SystemInformerPlugins-Setup-1.2.0.exe and .zip
+powershell -STA -File installer	est-installer.ps1 release\SystemInformerPlugins-Setup-1.2.0.exe   # checks, changes nothing
+```
+
+The installer (`installer\Installer.cs`, WinForms) is built with the .NET Framework 4 `csc.exe` that ships with
+Windows, so it needs no SDK to build and nothing extra to run. The DLLs are embedded in it.
+
+## Install / uninstall from a build
 
 ```powershell
 .\install.ps1                  # all built plugins (or -Plugin GpuMonitor); UAC prompt, restarts System Informer
