@@ -1,0 +1,5 @@
+vendor/
+sdk/
+obj/
+bin/
+install.log
