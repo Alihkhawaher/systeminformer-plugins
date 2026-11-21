@@ -32,3 +32,17 @@ Pushes to this public repo need the owner's explicit OK each time.
   System Informer is restarted in `finally` so a failed install never leaves it stopped.
 - PowerShell 5.1 `Start-Process -Wait` also waits for child processes: the elevated installer's wait never returned
   because it had started System Informer. Use `-PassThru` + `$p.WaitForExit()`.
+- MemBreakdown PFN scan: `SystemSuperfetchInformation` with `SuperfetchMemoryRangesQuery` (V1 fails on Win10 19045,
+  V2 works) then `SuperfetchPfnQuery` in 64K-PFN chunks (PFNs go in `PageFrameIndex`, `RequestFlags` 1). Needs admin
+  + SeProfileSingleProcessPrivilege (System Informer enables it). 128 GB = ~4 s; run it off the UI/provider thread.
+- Zero/free pages report UseDescription 0 (= process private): count them by list only. The scan's list totals match
+  `SystemMemoryListInformation` within ~1 GB (memory moves during the scan).
+- `SystemMemoryListInformation` works without admin on 19045. `SYSTEM_PERFORMANCE_INFORMATION.ResidentSystemDriverPage`
+  reads 0xFFFFFFFF (unusable); ResidentSystemCodePage reads 0.
+- PFN file pages carry the FILE_OBJECT address; MemBreakdown names it through an open handle to the same object
+  (`PhEnumHandlesEx` + `PhGetHandleInformation`). Closed files stay unnamed.
+- Not in SystemInformer.def (not callable from plugins): `PhDereferenceObjects`, `PhPerfInformation`, `PhGetPhysicallyInstalledSystemMemory`.
+  `PhEnumProcessItems` returns VOID. SI integer settings are hex strings ("1e" = 30).
+- Dialog procs get WM_SIZE before WM_INITDIALOG: guard globals/layout managers until init ran.
+- To test privileged code without System Informer: `build.ps1 -Probe`, then run `bin\memprobe.exe out.txt` elevated
+  (`Start-Process -Verb RunAs -PassThru`, `WaitForExit`).

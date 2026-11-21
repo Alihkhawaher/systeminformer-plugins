@@ -5,6 +5,7 @@ Third-party plugins for [System Informer](https://github.com/winsiderss/systemin
 | Plugin | What it does |
 |---|---|
 | [NvTccGpu](plugins/NvTccGpu/README.md) | Shows NVIDIA GPUs in TCC/MCDM mode (Tesla P40, A100, ...) in System Information, via NVML |
+| [MemBreakdown](plugins/MemBreakdown/README.md) | "Where is my memory going?": every physical page by use and list (like RAMMap), top processes, pool tags and cached files, with graphs |
 
 ## Requirements
 
@@ -17,6 +18,7 @@ Third-party plugins for [System Informer](https://github.com/winsiderss/systemin
 git clone --depth 1 --branch v4.0.26241.138 https://github.com/winsiderss/systeminformer.git vendor\systeminformer
 python tools\make_sdk.py              # SDK headers + SystemInformer.lib -> sdk\
 .\build.ps1                           # all plugins -> bin\<Name>.dll   (or -Plugin NvTccGpu)
+.\build.ps1 -Probe                    # bin\memprobe.exe: console check of MemBreakdown's sampling code
 ```
 
 ## Install / uninstall
