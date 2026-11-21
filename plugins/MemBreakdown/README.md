@@ -26,8 +26,8 @@ Information) whose rows add up to the installed RAM, a live version of RAMMap's 
   System Informer's `PoolTag.txt`. Pool sizes are allocated bytes. Paged pool can be partly paged out.
 - **Cached files (unnamed)** tab: how the file cache splits over files, the 64 largest first, by active, standby
   and modified pages. It shows, for example, that a few large files hold most of the standby cache. Files have no
-  names: the page data identifies a file by a kernel address (its control area, not a file object). That address
-  matches no open handle, so only a kernel driver could name the file, as RAMMap does.
+  names. The page data identifies a file only by a kernel address, which looks like a control area rather than a
+  file object. That address matches no open handle in the system, so naming the files would need a kernel driver.
 
 ## How it works
 
