@@ -32,7 +32,7 @@ foreach ($name in $Plugin) {
     $obj = "obj\$name"
     New-Item -ItemType Directory -Force bin, $obj | Out-Null
     $sources = (Get-ChildItem $dir -Filter *.c).FullName | ForEach-Object { "`"$_`"" }
-    $inc = "/I sdk\include /I vendor\systeminformer\phnt\include /I `"$dir`""
+    $inc = "/I sdk\include /I vendor\systeminformer\phnt\include /I common /I `"$dir`""   # common\ = headers shared by plugins (trayicon.h)
 
     $steps = @()
     $rc = Join-Path $dir "$name.rc"

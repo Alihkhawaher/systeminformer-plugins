@@ -28,6 +28,10 @@ Information) whose rows add up to the installed RAM, a live version of RAMMap's 
   summed in one row. This is where a large standby cache comes from, for example model files or disk images that
   were read once.
 
+- **Tray icon** (View > Tray icons > *RAM breakdown history*): in-use memory at the bottom with standby (file
+  cache) stacked on top, as a share of installed RAM; the empty part is free. The tooltip lists processes, kernel
+  and drivers, modified, standby and free.
+
 ## How it works
 
 - The page-by-page (PFN) scan runs on its own thread, only while the section is open, every

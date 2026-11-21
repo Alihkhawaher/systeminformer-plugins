@@ -15,6 +15,7 @@
 #include <settings.h>
 #include <pdh.h>
 #include <pdhmsg.h>
+#include <trayicon.h>
 #include "resource.h"
 
 #define PLUGIN_NAME L"GpuMonitor"
@@ -187,6 +188,7 @@ static PPH_PLUGIN PluginInstance;
 static PH_CALLBACK_REGISTRATION PluginLoadCallbackRegistration;
 static PH_CALLBACK_REGISTRATION ProcessesUpdatedCallbackRegistration;
 static PH_CALLBACK_REGISTRATION SystemInformationInitializingCallbackRegistration;
+static PH_CALLBACK_REGISTRATION TrayIconsInitializingCallbackRegistration;
 static PGPU Gpus[MAX_GPUS];
 static ULONG GpuCount;
 static BOOLEAN UseFahrenheit;
@@ -1581,6 +1583,105 @@ static BOOLEAN NTAPI SectionCallback(
     return FALSE;
 }
 
+// ---- tray icons --------------------------------------------------------------------------------
+// Per GPU (View > Tray icons): load history, memory history, temperature history (NVML), load as a number.
+// SubId = GPU index * 8 + kind, so the choice survives a restart while the GPUs stay the same.
+
+enum { TrayLoad = 1, TrayMemory, TrayTemperature, TrayLoadText };
+
+// {5E2A9C41-7B3D-4F18-A6E2-0C9B1D7F3A60}
+static CONST GUID TrayBaseGuid = { 0x5e2a9c41, 0x7b3d, 0x4f18, { 0xa6, 0xe2, 0x0c, 0x9b, 0x1d, 0x7f, 0x3a, 0x60 } };
+
+// "P40: 45%\nVRAM 16.2 GB / 24 GB\n62 °C, 120 W\nllama-server.exe (1234): 15.8 GB"
+static PPH_STRING GpuTrayTip(_In_ PGPU Gpu)
+{
+    PH_STRING_BUILDER sb;
+
+    PhInitializeStringBuilder(&sb, 128);
+    PhAppendStringBuilder(&sb, &Gpu->ShortName->sr);
+    PhAppendStringBuilder2(&sb, L": ");
+    TrayAppendOwned(&sb, FormatMetric(MetricGpu, Gpu->Value[MetricGpu]));
+    PhAppendStringBuilder2(&sb, L"\nVRAM ");
+    TrayAppendOwned(&sb, FormatUsedOfLimit((ULONG64)Gpu->Value[MetricDedicated], Gpu->DedicatedLimit));
+
+    if (Gpu->HasNvml)
+    {
+        PhAppendStringBuilder2(&sb, L"\n");
+        TrayAppendOwned(&sb, FormatMetric(MetricTemperature, Gpu->Value[MetricTemperature]));
+        PhAppendStringBuilder2(&sb, L", ");
+        TrayAppendOwned(&sb, FormatMetric(MetricPower, Gpu->Value[MetricPower]));
+    }
+
+    if (Gpu->TopAppHistory.Count)
+        TrayAppendOwned(&sb, GetTopAppString(Gpu, 0));
+
+    return PhFinalStringBuilderString(&sb);
+}
+
+static VOID GpuTrayFillLoad(_In_opt_ PVOID Context, _Out_writes_(Count) PFLOAT Data1, _Out_writes_opt_(Count) PFLOAT Data2, _In_ ULONG Count)
+{
+    PGPU gpu = Context;
+    TrayScale(&gpu->History[MetricGpu], 1.0f, Data1, Count);
+}
+
+static VOID GpuTrayFillMemory(_In_opt_ PVOID Context, _Out_writes_(Count) PFLOAT Data1, _Out_writes_opt_(Count) PFLOAT Data2, _In_ ULONG Count)
+{
+    PGPU gpu = Context;
+    TrayScale(&gpu->History[MetricDedicated], MetricMax(gpu, MetricDedicated), Data1, Count);
+}
+
+static VOID GpuTrayFillTemperature(_In_opt_ PVOID Context, _Out_writes_(Count) PFLOAT Data1, _Out_writes_opt_(Count) PFLOAT Data2, _In_ ULONG Count)
+{
+    PGPU gpu = Context;
+    TrayScale(&gpu->History[MetricTemperature], MetricMax(gpu, MetricTemperature), Data1, Count);
+}
+
+_Function_class_(PH_NF_ICON_UPDATE_CALLBACK)
+static VOID NTAPI GpuTrayUpdate(_In_ PPH_NF_ICON Icon, _Out_ PVOID* NewIconOrBitmap, _Out_ PULONG Flags, _Out_ PPH_STRING* NewText, _In_opt_ PVOID Context)
+{
+    PGPU gpu = Context;
+
+    switch (Icon->SubId % 8)
+    {
+    case TrayMemory:
+        TrayDrawHistory(Icon, PhGetIntegerSetting(SETTING_COLOR_PRIVATE), CLR_NONE, GpuTrayFillMemory, gpu, NewIconOrBitmap, Flags);
+        break;
+    case TrayTemperature:
+        TrayDrawHistory(Icon, PhGetIntegerSetting(SETTING_COLOR_TEMPERATURE), CLR_NONE, GpuTrayFillTemperature, gpu, NewIconOrBitmap, Flags);
+        break;
+    case TrayLoadText:
+        TrayDrawText(Icon, gpu->Value[MetricGpu] * 100, PhGetIntegerSetting(SETTING_COLOR_CPU_KERNEL), NewIconOrBitmap, Flags);
+        break;
+    default:
+        TrayDrawHistory(Icon, PhGetIntegerSetting(SETTING_COLOR_CPU_KERNEL), CLR_NONE, GpuTrayFillLoad, gpu, NewIconOrBitmap, Flags);
+        break;
+    }
+
+    *NewText = GpuTrayTip(gpu);
+}
+
+_Function_class_(PH_CALLBACK_FUNCTION)
+static VOID NTAPI TrayIconsInitializingCallback(_In_opt_ PVOID Parameter, _In_opt_ PVOID Context)
+{
+    PPH_TRAY_ICON_POINTERS pointers = Parameter;
+
+    if (!pointers)
+        return;
+
+    for (ULONG i = 0; i < GpuCount; i++)
+    {
+        PGPU gpu = Gpus[i];
+        PCWSTR name = gpu->ShortName->Buffer;
+
+        // The menu keeps these strings, so they are never freed.
+        TrayRegister(pointers, PluginInstance, &TrayBaseGuid, i * 8 + TrayLoad, gpu, PhFormatString(L"GPU history: %s", name), TRUE, GpuTrayUpdate);
+        TrayRegister(pointers, PluginInstance, &TrayBaseGuid, i * 8 + TrayMemory, gpu, PhFormatString(L"GPU memory history: %s", name), TRUE, GpuTrayUpdate);
+        if (gpu->HasNvml)
+            TrayRegister(pointers, PluginInstance, &TrayBaseGuid, i * 8 + TrayTemperature, gpu, PhFormatString(L"GPU temperature history: %s", name), TRUE, GpuTrayUpdate);
+        TrayRegister(pointers, PluginInstance, &TrayBaseGuid, i * 8 + TrayLoadText, gpu, PhFormatString(L"GPU usage (text): %s", name), TRUE, GpuTrayUpdate);
+    }
+}
+
 // ---- plugin ------------------------------------------------------------------------------------
 
 _Function_class_(PH_CALLBACK_FUNCTION)
@@ -1663,6 +1764,7 @@ LOGICAL DllMain(
         PhRegisterCallback(PhGetPluginCallback(PluginInstance, PluginCallbackLoad), LoadCallback, NULL, &PluginLoadCallbackRegistration);
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackProcessProviderUpdatedEvent), ProcessesUpdatedCallback, NULL, &ProcessesUpdatedCallbackRegistration);
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackSystemInformationInitializing), SystemInformationInitializingCallback, NULL, &SystemInformationInitializingCallbackRegistration);
+        PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackTrayIconsInitializing), TrayIconsInitializingCallback, NULL, &TrayIconsInitializingCallbackRegistration);
     }
 
     return TRUE;

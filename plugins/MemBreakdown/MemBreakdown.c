@@ -19,6 +19,7 @@
 #include <settings.h>
 #include "memcore.h"
 #include "filenames.h"
+#include <trayicon.h>
 #include "resource.h"
 
 #define PLUGIN_NAME L"MemBreakdown"
@@ -66,6 +67,7 @@ static PPH_PLUGIN PluginInstance;
 static PH_CALLBACK_REGISTRATION PluginLoadCallbackRegistration;
 static PH_CALLBACK_REGISTRATION ProcessesUpdatedCallbackRegistration;
 static PH_CALLBACK_REGISTRATION SystemInformationInitializingCallbackRegistration;
+static PH_CALLBACK_REGISTRATION TrayIconsInitializingCallbackRegistration;
 
 // fast tier, written on the provider thread
 static MB_FAST Fast;
@@ -1650,6 +1652,58 @@ static BOOLEAN NTAPI SectionCallback(
     return FALSE;
 }
 
+// ---- tray icon -------------------------------------------------------------
+// View > Tray icons > "RAM breakdown history": in use (private + other + modified) at the bottom, standby (file
+// cache) stacked on top, both as a share of installed RAM; the gap to the top is free memory.
+
+#define TRAY_SUBID 1
+
+// {C3B85F20-6E1A-4D97-8F3C-5A0E2B7D4C10}
+static CONST GUID TrayBaseGuid = { 0xc3b85f20, 0x6e1a, 0x4d97, { 0x8f, 0x3c, 0x5a, 0x0e, 0x2b, 0x7d, 0x4c, 0x10 } };
+
+static VOID TrayFill(_In_opt_ PVOID Context, _Out_writes_(Count) PFLOAT Data1, _Out_writes_opt_(Count) PFLOAT Data2, _In_ ULONG Count)
+{
+    TrayScale(&InUseHistory, GraphMax(), Data1, Count);
+    if (Data2)
+        TrayScale(&History[MetricStandby], GraphMax(), Data2, Count);
+}
+
+static VOID TrayAppendLine(_Inout_ PPH_STRING_BUILDER Sb, _In_ PCWSTR Label, _In_ ULONG64 Bytes)
+{
+    WCHAR size[32];
+    WCHAR line[96];
+
+    _snwprintf_s(line, RTL_NUMBER_OF(line), _TRUNCATE, L"\n%s %s", Label, FormatSize(Bytes, size, RTL_NUMBER_OF(size)));
+    PhAppendStringBuilder2(Sb, line);
+}
+
+_Function_class_(PH_NF_ICON_UPDATE_CALLBACK)
+static VOID NTAPI TrayUpdate(_In_ PPH_NF_ICON Icon, _Out_ PVOID* NewIconOrBitmap, _Out_ PULONG Flags, _Out_ PPH_STRING* NewText, _In_opt_ PVOID Context)
+{
+    PH_STRING_BUILDER sb;
+
+    TrayDrawHistory(Icon, PhGetIntegerSetting(SETTING_COLOR_PRIVATE), PhGetIntegerSetting(SETTING_COLOR_IO_READ_OTHER), TrayFill, NULL, NewIconOrBitmap, Flags);
+
+    // "RAM\nProcesses 40 GB\nKernel, drivers 9 GB\nModified 1 GB\nStandby 60 GB\nFree 18 GB"
+    PhInitializeStringBuilder(&sb, 128);
+    PhAppendStringBuilder2(&sb, L"RAM");
+    TrayAppendLine(&sb, L"Processes", Values[MetricPrivate]);
+    TrayAppendLine(&sb, L"Kernel, drivers, files", Values[MetricOther]);
+    TrayAppendLine(&sb, L"Modified", Values[MetricModified]);
+    TrayAppendLine(&sb, L"Standby", Values[MetricStandby]);
+    TrayAppendLine(&sb, L"Free", Values[MetricFree]);
+    *NewText = PhFinalStringBuilderString(&sb);
+}
+
+_Function_class_(PH_CALLBACK_FUNCTION)
+static VOID NTAPI TrayIconsInitializingCallback(_In_opt_ PVOID Parameter, _In_opt_ PVOID Context)
+{
+    PPH_TRAY_ICON_POINTERS pointers = Parameter;
+
+    if (pointers)
+        TrayRegister(pointers, PluginInstance, &TrayBaseGuid, TRAY_SUBID, NULL, PhCreateString(L"RAM breakdown history"), TRUE, TrayUpdate);
+}
+
 // ---- plugin callbacks ------------------------------------------------------
 
 _Function_class_(PH_CALLBACK_FUNCTION)
@@ -1719,6 +1773,7 @@ LOGICAL DllMain(
         PhRegisterCallback(PhGetPluginCallback(PluginInstance, PluginCallbackLoad), LoadCallback, NULL, &PluginLoadCallbackRegistration);
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackProcessProviderUpdatedEvent), ProcessesUpdatedCallback, NULL, &ProcessesUpdatedCallbackRegistration);
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackSystemInformationInitializing), SystemInformationInitializingCallback, NULL, &SystemInformationInitializingCallbackRegistration);
+        PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackTrayIconsInitializing), TrayIconsInitializingCallback, NULL, &TrayIconsInitializingCallbackRegistration);
 
         PhAddSettings(settings, RTL_NUMBER_OF(settings));
     }

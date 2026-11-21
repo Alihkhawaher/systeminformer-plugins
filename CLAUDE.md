@@ -9,6 +9,7 @@ Pushes to this public repo need the owner's explicit OK each time.
 - `plugins\<Name>\` one folder per plugin (sources, `.rc`, `resource.h`, `README.md`). Keep the root README table current.
 - `tools\make_sdk.py` builds `sdk\` (headers + ordinal import lib) from `vendor\systeminformer` (git clone of the
   tag matching the installed System Informer) and the installed `SystemInformer.exe`.
+- `common\` headers shared by plugins (on build.ps1's include path): `trayicon.h` registers and draws tray icons.
 - `build.ps1` / `install.ps1` / `uninstall.ps1` take `-Plugin`; extend them, don't add per-plugin copies.
 
 ## Lessons (don't repeat)
@@ -68,3 +69,8 @@ Pushes to this public repo need the owner's explicit OK each time.
 - Dialog procs get WM_SIZE before WM_INITDIALOG: guard globals/layout managers until init ran.
 - To test privileged code without System Informer: `build.ps1 -Probe`, then run `bin\memprobe.exe out.txt` elevated
   (`Start-Process -Verb RunAs -PassThru`, `WaitForExit`).
+- Tray icons: register from `GeneralCallbackTrayIconsInitializing` (runs after PluginCallbackLoad, so discovered
+  devices are known) with `common\trayicon.h`. The update callback runs on SI's TrayIconUpdateThread, which has **no
+  auto pool**: no `PH_AUTO`/`Pha*` there (use `TrayAppendOwned`). The menu keeps the `Text` pointer, so never free
+  it. SubId is saved in `IconSettings` (plugin name + SubId), so keep it stable per device (GPU index, disk number).
+  The GUID is only used with `IconTrayPersistGuidEnabled`; `TrayGuid` derives one per SubId from a fixed base.

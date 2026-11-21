@@ -4,6 +4,7 @@
 #include <phdk.h>
 #include <settings.h>
 #include <ntddscsi.h>   // winioctl.h already comes in through phdk.h; including it again redefines its GUIDs
+#include <trayicon.h>
 #include "resource.h"
 
 #define SMART_MAX_ROWS 48

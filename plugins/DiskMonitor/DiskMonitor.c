@@ -119,6 +119,7 @@ static PH_CALLBACK_REGISTRATION PluginLoadCallbackRegistration;
 static PH_CALLBACK_REGISTRATION PluginUnloadCallbackRegistration;
 static PH_CALLBACK_REGISTRATION ProcessesUpdatedCallbackRegistration;
 static PH_CALLBACK_REGISTRATION SystemInformationInitializingCallbackRegistration;
+static PH_CALLBACK_REGISTRATION TrayIconsInitializingCallbackRegistration;
 static PDISK Disks[MAX_DISKS];
 static ULONG DiskCount;
 static ULONG TickCount;
@@ -1643,6 +1644,155 @@ static BOOLEAN NTAPI SectionCallback(
     return FALSE;
 }
 
+// ---- tray icons --------------------------------------------------------------------------------
+// View > Tray icons: all disks' I/O history, and per disk its I/O history and active time as a number.
+// SubId: 1 = all disks; 0x100 + disk number * 4 + kind for one disk (the disk number is stable across restarts).
+
+enum { TrayAll = 1, TrayDiskIo = 1, TrayDiskActiveText = 2 };
+#define TRAY_DISK_SUBID(Disk, Kind) (0x100 + (Disk)->Number * 4 + (Kind))
+
+// {9C47E1B2-3A6D-4E85-B0F4-7D2A5C1E8B30}
+static CONST GUID TrayBaseGuid = { 0x9c47e1b2, 0x3a6d, 0x4e85, { 0xb0, 0xf4, 0x7d, 0x2a, 0x5c, 0x1e, 0x8b, 0x30 } };
+
+static VOID TrayAppendRates(_Inout_ PPH_STRING_BUILDER Sb, _In_ FLOAT Read, _In_ FLOAT Write)
+{
+    PhAppendStringBuilder2(Sb, L"R ");
+    TrayAppendOwned(Sb, FormatRate(Read));
+    PhAppendStringBuilder2(Sb, L", W ");
+    TrayAppendOwned(Sb, FormatRate(Write));
+}
+
+// "Disk 4 (C:): Caution\nR 12 MB/s, W 3 MB/s, 4% active\n41 °C\nchrome.exe R 10 MB/s, W 1 MB/s"
+static PPH_STRING DiskTrayTip(_In_ PDISK Disk)
+{
+    PH_STRING_BUILDER sb;
+    SMART_STATUS health;
+    LONG temperature;
+    ULONG pid;
+    WCHAR active[32];
+
+    PhAcquireQueuedLockShared(&Disk->Lock);
+    health = Disk->Health;
+    temperature = Disk->Smart.TemperatureC;
+    PhReleaseQueuedLockShared(&Disk->Lock);
+
+    PhInitializeStringBuilder(&sb, 128);
+    PhAppendStringBuilder(&sb, &Disk->Title->sr);
+    PhAppendStringBuilder2(&sb, L": ");
+    PhAppendStringBuilder2(&sb, (PWSTR)HealthText(health));
+    PhAppendStringBuilder2(&sb, L"\n");
+    TrayAppendRates(&sb, Disk->ReadRate, Disk->WriteRate);
+    _snwprintf_s(active, RTL_NUMBER_OF(active), _TRUNCATE, L", %.0f%% active", Disk->Active * 100);
+    PhAppendStringBuilder2(&sb, active);
+
+    if (temperature != LONG_MIN)
+    {
+        PhAppendStringBuilder2(&sb, L"\n");
+        TrayAppendOwned(&sb, FormatTemperature((FLOAT)temperature));
+    }
+
+    if (Disk->TopAppHistory.Count && (pid = PhGetItemCircularBuffer_ULONG(&Disk->TopAppHistory, 0)))
+    {
+        PhAppendStringBuilder2(&sb, L"\n");
+        TrayAppendOwned(&sb, ProcessNameOf(pid));
+        PhAppendStringBuilder2(&sb, L" ");
+        TrayAppendRates(&sb, PhGetItemCircularBuffer_FLOAT(&Disk->TopAppReadHistory, 0), PhGetItemCircularBuffer_FLOAT(&Disk->TopAppWriteHistory, 0));
+    }
+
+    return PhFinalStringBuilderString(&sb);
+}
+
+// "All disks\nR 12 MB/s, W 3 MB/s\nBusiest: Disk 4 (C:) 15 MB/s"
+static PPH_STRING AllDisksTrayTip(VOID)
+{
+    PH_STRING_BUILDER sb;
+    PDISK busiest = NULL;
+    FLOAT read = 0, write = 0;
+
+    for (ULONG i = 0; i < DiskCount; i++)
+    {
+        PDISK disk = Disks[i];
+
+        read += disk->ReadRate;
+        write += disk->WriteRate;
+        if (disk->ReadRate + disk->WriteRate > 0 && (!busiest || disk->ReadRate + disk->WriteRate > busiest->ReadRate + busiest->WriteRate))
+            busiest = disk;
+    }
+
+    PhInitializeStringBuilder(&sb, 128);
+    PhAppendStringBuilder2(&sb, L"All disks\n");
+    TrayAppendRates(&sb, read, write);
+
+    if (busiest)
+    {
+        PhAppendStringBuilder2(&sb, L"\nBusiest: ");
+        PhAppendStringBuilder(&sb, &busiest->Title->sr);
+        PhAppendStringBuilder2(&sb, L" ");
+        TrayAppendOwned(&sb, FormatRate(busiest->ReadRate + busiest->WriteRate));
+    }
+
+    return PhFinalStringBuilderString(&sb);
+}
+
+static VOID TrayFillReadWrite(_In_ PPH_CIRCULAR_BUFFER_FLOAT Read, _In_ PPH_CIRCULAR_BUFFER_FLOAT Write, _Out_writes_(Count) PFLOAT Data1, _Out_writes_opt_(Count) PFLOAT Data2, _In_ ULONG Count)
+{
+    FLOAT max = TrayPeak(Read, Write, Count, 1024 * 1024); // at least 1 MB/s full scale
+
+    TrayScale(Read, max, Data1, Count);
+    if (Data2)
+        TrayScale(Write, max, Data2, Count);
+}
+
+static VOID DiskTrayFill(_In_opt_ PVOID Context, _Out_writes_(Count) PFLOAT Data1, _Out_writes_opt_(Count) PFLOAT Data2, _In_ ULONG Count)
+{
+    PDISK disk = Context;
+
+    if (disk)
+        TrayFillReadWrite(&disk->ReadHistory, &disk->WriteHistory, Data1, Data2, Count);
+    else
+        TrayFillReadWrite(&TotalReadHistory, &TotalWriteHistory, Data1, Data2, Count);
+}
+
+_Function_class_(PH_NF_ICON_UPDATE_CALLBACK)
+static VOID NTAPI DiskTrayUpdate(_In_ PPH_NF_ICON Icon, _Out_ PVOID* NewIconOrBitmap, _Out_ PULONG Flags, _Out_ PPH_STRING* NewText, _In_opt_ PVOID Context)
+{
+    PDISK disk = Context;
+
+    if (disk && Icon->SubId == TRAY_DISK_SUBID(disk, TrayDiskActiveText))
+    {
+        TrayDrawText(Icon, disk->Active * 100, PhGetIntegerSetting(SETTING_COLOR_IO_READ_OTHER), NewIconOrBitmap, Flags);
+    }
+    else
+    {
+        TrayDrawHistory(Icon, PhGetIntegerSetting(SETTING_COLOR_IO_READ_OTHER), PhGetIntegerSetting(SETTING_COLOR_IO_WRITE),
+            DiskTrayFill, disk, NewIconOrBitmap, Flags);
+    }
+
+    *NewText = disk ? DiskTrayTip(disk) : AllDisksTrayTip();
+}
+
+_Function_class_(PH_CALLBACK_FUNCTION)
+static VOID NTAPI TrayIconsInitializingCallback(_In_opt_ PVOID Parameter, _In_opt_ PVOID Context)
+{
+    PPH_TRAY_ICON_POINTERS pointers = Parameter;
+
+    if (!pointers)
+        return;
+
+    // The menu keeps these strings, so they are never freed.
+    TrayRegister(pointers, PluginInstance, &TrayBaseGuid, TrayAll, NULL, PhCreateString(L"Disk history: all disks"), DiskCount != 0, DiskTrayUpdate);
+
+    for (ULONG i = 0; i < DiskCount; i++)
+    {
+        PDISK disk = Disks[i];
+
+        TrayRegister(pointers, PluginInstance, &TrayBaseGuid, TRAY_DISK_SUBID(disk, TrayDiskIo), disk,
+            PhFormatString(L"Disk history: %s", disk->Title->Buffer), TRUE, DiskTrayUpdate);
+        TrayRegister(pointers, PluginInstance, &TrayBaseGuid, TRAY_DISK_SUBID(disk, TrayDiskActiveText), disk,
+            PhFormatString(L"Disk active time (text): %s", disk->Title->Buffer), TRUE, DiskTrayUpdate);
+    }
+}
+
 // ---- plugin ------------------------------------------------------------------------------------
 
 _Function_class_(PH_CALLBACK_FUNCTION)
@@ -1755,6 +1905,7 @@ LOGICAL DllMain(
         PhRegisterCallback(PhGetPluginCallback(PluginInstance, PluginCallbackUnload), UnloadCallback, NULL, &PluginUnloadCallbackRegistration);
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackProcessProviderUpdatedEvent), ProcessesUpdatedCallback, NULL, &ProcessesUpdatedCallbackRegistration);
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackSystemInformationInitializing), SystemInformationInitializingCallback, NULL, &SystemInformationInitializingCallbackRegistration);
+        PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackTrayIconsInitializing), TrayIconsInitializingCallback, NULL, &TrayIconsInitializingCallbackRegistration);
 
         PhAddSettings(settings, RTL_NUMBER_OF(settings));
     }

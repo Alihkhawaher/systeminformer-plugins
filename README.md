@@ -48,11 +48,16 @@ Both take `-SystemInformerDir` (default `C:\Program Files\SystemInformer`) and `
   `SystemInformer.exe`. Clone the tag that matches your installed version, then run `make_sdk.py` and `build.ps1`.
 - `make_sdk.py` reproduces System Informer's SDK step (header generation and copies) without running its build tools.
 
+GpuMonitor, DiskMonitor and MemBreakdown add **tray icons** with history graphs (View > Tray icons in System
+Informer), like its own CPU and I/O history icons.
+
 ## Adding a plugin
 
 Create `plugins\<Name>\` with one or more `.c` files, an optional `<Name>.rc` and `resource.h`, and a `README.md`.
 `build.ps1` compiles every `.c` in the folder into `bin\<Name>.dll`. Register with `PhRegisterPlugin(L"<Name>", ...)`
-in `DllMain`; `plugins\NvTccGpu` is a working example of a System Information section.
+in `DllMain`; `plugins\NvTccGpu` is a working example of a System Information section. For tray icons, include
+`common\trayicon.h` (on the include path) and register from `GeneralCallbackTrayIconsInitializing`; GpuMonitor,
+DiskMonitor and MemBreakdown show how.
 
 ## License
 

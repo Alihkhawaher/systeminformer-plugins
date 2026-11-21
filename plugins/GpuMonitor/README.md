@@ -18,6 +18,9 @@ System Informer's built-in GPU page cannot see. It replaces ExtendedTools' combi
   row for the process properties.
 - GPU and memory graph tooltips name the busiest app at that moment (largest memory holder on TCC); double-click a
   graph to open that process.
+- **Tray icons** (View > Tray icons), per GPU: *GPU history*, *GPU memory history*, *GPU temperature history*
+  (NVIDIA only) and *GPU usage (text)*. The tooltip shows load, VRAM used of total, temperature and power, and the
+  busiest app (largest VRAM holder on TCC).
 - Identical cards are numbered (`P40 #1`, `P40 #2`). Temperature follows ExtendedTools' Fahrenheit option.
 
 Sources: D3DKMT (adapter names, PCI bus, memory sizes), the Windows "GPU Engine", "GPU Process Memory" and
