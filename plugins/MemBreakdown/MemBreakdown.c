@@ -68,6 +68,7 @@ static PH_CALLBACK_REGISTRATION PluginLoadCallbackRegistration;
 static PH_CALLBACK_REGISTRATION ProcessesUpdatedCallbackRegistration;
 static PH_CALLBACK_REGISTRATION SystemInformationInitializingCallbackRegistration;
 static PH_CALLBACK_REGISTRATION TrayIconsInitializingCallbackRegistration;
+static PH_CALLBACK_REGISTRATION MiniInformationInitializingCallbackRegistration;
 
 // fast tier, written on the provider thread
 static MB_FAST Fast;
@@ -1695,13 +1696,44 @@ static VOID NTAPI TrayUpdate(_In_ PPH_NF_ICON Icon, _Out_ PVOID* NewIconOrBitmap
     *NewText = PhFinalStringBuilderString(&sb);
 }
 
+// Hover window section "RAM breakdown": processes by private working set.
+static FLOAT MiniInfoProcessValue(_In_opt_ PVOID Context, _In_ PPH_PROCESS_ITEM Process)
+{
+    return (FLOAT)Process->WorkingSetPrivateSize;
+}
+
+static PPH_STRING MiniInfoFormatValue(_In_opt_ PVOID Context, _In_ FLOAT Value)
+{
+    return PhFormatSize((ULONG64)Value, ULONG_MAX);
+}
+
+// "In use 50 GB    Standby 60 GB    Free 18 GB"
+static PPH_STRING MiniInfoHeader(_In_opt_ PVOID Context)
+{
+    WCHAR inUse[32], standby[32], free[32];
+
+    return PhFormatString(L"In use %s    Standby %s    Free %s",
+        FormatSize(Values[MetricPrivate] + Values[MetricOther] + Values[MetricModified], inUse, RTL_NUMBER_OF(inUse)),
+        FormatSize(Values[MetricStandby], standby, RTL_NUMBER_OF(standby)),
+        FormatSize(Values[MetricFree], free, RTL_NUMBER_OF(free)));
+}
+
+static TRAY_MINIINFO MiniInfo = { L"RAM breakdown", NULL, MiniInfoProcessValue, MiniInfoFormatValue, MiniInfoHeader };
+
+_Function_class_(PH_CALLBACK_FUNCTION)
+static VOID NTAPI MiniInformationInitializingCallback(_In_opt_ PVOID Parameter, _In_opt_ PVOID Context)
+{
+    if (Parameter)
+        TrayMiniInfoCreate(Parameter, &MiniInfo);
+}
+
 _Function_class_(PH_CALLBACK_FUNCTION)
 static VOID NTAPI TrayIconsInitializingCallback(_In_opt_ PVOID Parameter, _In_opt_ PVOID Context)
 {
     PPH_TRAY_ICON_POINTERS pointers = Parameter;
 
     if (pointers)
-        TrayRegister(pointers, PluginInstance, &TrayBaseGuid, TRAY_SUBID, NULL, PhCreateString(L"RAM breakdown history"), TRUE, TrayUpdate);
+        TrayRegister(pointers, PluginInstance, &TrayBaseGuid, TRAY_SUBID, NULL, PhCreateString(L"RAM breakdown history"), MiniInfo.Name, TRUE, TrayUpdate);
 }
 
 // ---- plugin callbacks ------------------------------------------------------
@@ -1774,6 +1806,7 @@ LOGICAL DllMain(
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackProcessProviderUpdatedEvent), ProcessesUpdatedCallback, NULL, &ProcessesUpdatedCallbackRegistration);
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackSystemInformationInitializing), SystemInformationInitializingCallback, NULL, &SystemInformationInitializingCallbackRegistration);
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackTrayIconsInitializing), TrayIconsInitializingCallback, NULL, &TrayIconsInitializingCallbackRegistration);
+        PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackMiniInformationInitializing), MiniInformationInitializingCallback, NULL, &MiniInformationInitializingCallbackRegistration);
 
         PhAddSettings(settings, RTL_NUMBER_OF(settings));
     }

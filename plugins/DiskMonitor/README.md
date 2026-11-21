@@ -8,7 +8,8 @@ One **Disks** section in System Information for all physical disks (found automa
 - **Apps**: processes doing I/O on the selected disk right now (read/s, write/s); double-click for properties.
   Read/write tooltips (tiles and graph) name the busiest app at that moment.
 - **Tray icons** (View > Tray icons): *Disk history: all disks*, and a *Disk history* read/write graph per disk. The tooltip shows health, read/write speed, active time, temperature and the busiest
-  app on that disk.
+  app on that disk. Hovering opens the mini info window on a *Disks* or *Disk N (X:)* section with the apps sorted
+  by read + write speed.
 
 Per-app I/O comes from a private ETW system-logger session `SiDiskMonitorSession` with only disk-I/O events
 (Windows 8+, runs beside ExtendedTools' `SiKernelTraceSession`; needs administrator). It is stopped when System

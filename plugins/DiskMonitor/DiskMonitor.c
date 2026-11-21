@@ -90,6 +90,9 @@ typedef struct _DISK
     // per-refresh scratch (provider thread)
     ULONG ScratchCount;
     DISK_APP Scratch[MAX_APPS];
+
+    // tray icon hover window (name = Title)
+    TRAY_MINIINFO MiniInfo;
 } DISK, *PDISK;
 
 // The one System Information page.
@@ -121,6 +124,7 @@ static PH_CALLBACK_REGISTRATION PluginUnloadCallbackRegistration;
 static PH_CALLBACK_REGISTRATION ProcessesUpdatedCallbackRegistration;
 static PH_CALLBACK_REGISTRATION SystemInformationInitializingCallbackRegistration;
 static PH_CALLBACK_REGISTRATION TrayIconsInitializingCallbackRegistration;
+static PH_CALLBACK_REGISTRATION MiniInformationInitializingCallbackRegistration;
 static PDISK Disks[MAX_DISKS];
 static ULONG DiskCount;
 static ULONG TickCount;
@@ -1765,6 +1769,112 @@ static VOID NTAPI DiskTrayUpdate(_In_ PPH_NF_ICON Icon, _Out_ PVOID* NewIconOrBi
     *NewText = disk ? DiskTrayTip(disk) : AllDisksTrayTip();
 }
 
+// Hover window sections: "Disks" (all disks) and one per disk, apps sorted by read + write rate.
+static FLOAT DiskAppRate(_In_ PDISK Disk, _In_ ULONG ProcessId)
+{
+    FLOAT value = 0;
+
+    PhAcquireQueuedLockShared(&Disk->Lock);
+    for (ULONG i = 0; i < Disk->AppCount; i++)
+    {
+        if (Disk->Apps[i].ProcessId == ProcessId)
+        {
+            value = Disk->Apps[i].ReadRate + Disk->Apps[i].WriteRate;
+            break;
+        }
+    }
+    PhReleaseQueuedLockShared(&Disk->Lock);
+
+    return value;
+}
+
+static FLOAT DiskMiniInfoProcessValue(_In_opt_ PVOID Context, _In_ PPH_PROCESS_ITEM Process)
+{
+    ULONG pid = HandleToUlong(Process->ProcessId);
+    FLOAT value = 0;
+
+    if (Context)
+        return DiskAppRate(Context, pid);
+
+    for (ULONG i = 0; i < DiskCount; i++)
+        value += DiskAppRate(Disks[i], pid);
+
+    return value;
+}
+
+static PPH_STRING DiskMiniInfoFormatValue(_In_opt_ PVOID Context, _In_ FLOAT Value)
+{
+    return FormatRate(Value);
+}
+
+// "Disk 4 (C:)    Caution    R 12 MB/s, W 3 MB/s, 4% active" or "All disks    R 12 MB/s, W 3 MB/s"
+static PPH_STRING DiskMiniInfoHeader(_In_opt_ PVOID Context)
+{
+    PDISK disk = Context;
+    PH_STRING_BUILDER sb;
+    FLOAT read = 0, write = 0;
+    SMART_STATUS health;
+
+    PhInitializeStringBuilder(&sb, 96);
+
+    if (disk)
+    {
+        WCHAR active[32];
+
+        PhAcquireQueuedLockShared(&disk->Lock);
+        health = disk->Health;
+        PhReleaseQueuedLockShared(&disk->Lock);
+
+        PhAppendStringBuilder(&sb, &disk->Title->sr);
+        PhAppendStringBuilder2(&sb, L"    ");
+        PhAppendStringBuilder2(&sb, (PWSTR)HealthText(health));
+        PhAppendStringBuilder2(&sb, L"    ");
+        TrayAppendRates(&sb, disk->ReadRate, disk->WriteRate);
+        _snwprintf_s(active, RTL_NUMBER_OF(active), _TRUNCATE, L", %.0f%% active", disk->Active * 100);
+        PhAppendStringBuilder2(&sb, active);
+    }
+    else
+    {
+        for (ULONG i = 0; i < DiskCount; i++)
+        {
+            read += Disks[i]->ReadRate;
+            write += Disks[i]->WriteRate;
+        }
+
+        PhAppendStringBuilder2(&sb, L"All disks    ");
+        TrayAppendRates(&sb, read, write);
+    }
+
+    return PhFinalStringBuilderString(&sb);
+}
+
+static TRAY_MINIINFO AllDisksMiniInfo = { L"Disks", NULL, DiskMiniInfoProcessValue, DiskMiniInfoFormatValue, DiskMiniInfoHeader };
+
+static VOID DiskMiniInfoSetup(VOID)
+{
+    for (ULONG i = 0; i < DiskCount; i++)
+    {
+        PDISK disk = Disks[i];
+
+        disk->MiniInfo.Name = disk->Title->Buffer;
+        disk->MiniInfo.Context = disk;
+        disk->MiniInfo.ProcessValue = DiskMiniInfoProcessValue;
+        disk->MiniInfo.FormatValue = DiskMiniInfoFormatValue;
+        disk->MiniInfo.Header = DiskMiniInfoHeader;
+    }
+}
+
+_Function_class_(PH_CALLBACK_FUNCTION)
+static VOID NTAPI MiniInformationInitializingCallback(_In_opt_ PVOID Parameter, _In_opt_ PVOID Context)
+{
+    if (!Parameter || !DiskCount)
+        return;
+
+    TrayMiniInfoCreate(Parameter, &AllDisksMiniInfo);
+    for (ULONG i = 0; i < DiskCount; i++)
+        TrayMiniInfoCreate(Parameter, &Disks[i]->MiniInfo);
+}
+
 _Function_class_(PH_CALLBACK_FUNCTION)
 static VOID NTAPI TrayIconsInitializingCallback(_In_opt_ PVOID Parameter, _In_opt_ PVOID Context)
 {
@@ -1774,14 +1884,14 @@ static VOID NTAPI TrayIconsInitializingCallback(_In_opt_ PVOID Parameter, _In_op
         return;
 
     // The menu keeps these strings, so they are never freed.
-    TrayRegister(pointers, PluginInstance, &TrayBaseGuid, TrayAll, NULL, PhCreateString(L"Disk history: all disks"), DiskCount != 0, DiskTrayUpdate);
+    TrayRegister(pointers, PluginInstance, &TrayBaseGuid, TrayAll, NULL, PhCreateString(L"Disk history: all disks"), AllDisksMiniInfo.Name, DiskCount != 0, DiskTrayUpdate);
 
     for (ULONG i = 0; i < DiskCount; i++)
     {
         PDISK disk = Disks[i];
 
         TrayRegister(pointers, PluginInstance, &TrayBaseGuid, TRAY_DISK_SUBID(disk, TrayDiskIo), disk,
-            PhFormatString(L"Disk history: %s", disk->Title->Buffer), TRUE, DiskTrayUpdate);
+            PhFormatString(L"Disk history: %s", disk->Title->Buffer), disk->MiniInfo.Name, TRUE, DiskTrayUpdate);
     }
 }
 
@@ -1819,6 +1929,7 @@ static VOID NTAPI LoadCallback(_In_opt_ PVOID Parameter, _In_opt_ PVOID Context)
     DiscoverDisks();
     RefreshVolumes();
     MakeTitles();
+    DiskMiniInfoSetup();
 
     // Select the remembered disk, else the system disk, else the first.
     selected = PhGetIntegerSetting(SETTING_NAME_SELECTED);
@@ -1898,6 +2009,7 @@ LOGICAL DllMain(
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackProcessProviderUpdatedEvent), ProcessesUpdatedCallback, NULL, &ProcessesUpdatedCallbackRegistration);
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackSystemInformationInitializing), SystemInformationInitializingCallback, NULL, &SystemInformationInitializingCallbackRegistration);
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackTrayIconsInitializing), TrayIconsInitializingCallback, NULL, &TrayIconsInitializingCallbackRegistration);
+        PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackMiniInformationInitializing), MiniInformationInitializingCallback, NULL, &MiniInformationInitializingCallbackRegistration);
 
         PhAddSettings(settings, RTL_NUMBER_OF(settings));
     }

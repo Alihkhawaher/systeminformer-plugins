@@ -21,6 +21,8 @@ System Informer's built-in GPU page cannot see. It replaces ExtendedTools' combi
 - **Tray icons** (View > Tray icons), per GPU: *GPU history*, *GPU memory history* and *GPU temperature
   history* (NVIDIA only). The tooltip shows load, VRAM used of total, temperature and power, and the
   busiest app (largest VRAM holder on TCC).
+  Hovering an icon opens System Informer's mini info window on a *GPU: <name>* section: load and VRAM, and the
+  apps sorted by GPU load (by VRAM on TCC).
 - Identical cards are numbered (`P40 #1`, `P40 #2`). Temperature follows ExtendedTools' Fahrenheit option.
 
 Sources: D3DKMT (adapter names, PCI bus, memory sizes), the Windows "GPU Engine", "GPU Process Memory" and

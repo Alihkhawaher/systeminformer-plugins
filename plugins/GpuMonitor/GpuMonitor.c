@@ -182,6 +182,10 @@ typedef struct _GPU
     PH_GRAPH_STATE GraphState[MAX_SLOTS];
     HWND Panel;
     HWND AppsList;
+
+    // tray icon hover window
+    PPH_STRING MiniInfoName;    // "GPU: P40"
+    TRAY_MINIINFO MiniInfo;
 } GPU, *PGPU;
 
 static PPH_PLUGIN PluginInstance;
@@ -189,6 +193,7 @@ static PH_CALLBACK_REGISTRATION PluginLoadCallbackRegistration;
 static PH_CALLBACK_REGISTRATION ProcessesUpdatedCallbackRegistration;
 static PH_CALLBACK_REGISTRATION SystemInformationInitializingCallbackRegistration;
 static PH_CALLBACK_REGISTRATION TrayIconsInitializingCallbackRegistration;
+static PH_CALLBACK_REGISTRATION MiniInformationInitializingCallbackRegistration;
 static PGPU Gpus[MAX_GPUS];
 static ULONG GpuCount;
 static BOOLEAN UseFahrenheit;
@@ -1657,6 +1662,71 @@ static VOID NTAPI GpuTrayUpdate(_In_ PPH_NF_ICON Icon, _Out_ PVOID* NewIconOrBit
     *NewText = GpuTrayTip(gpu);
 }
 
+// Hover window section per GPU: apps by GPU load (WDDM) or by VRAM (TCC, where per-app load isn't reported).
+static FLOAT GpuMiniInfoProcessValue(_In_opt_ PVOID Context, _In_ PPH_PROCESS_ITEM Process)
+{
+    PGPU gpu = Context;
+    ULONG pid = HandleToUlong(Process->ProcessId);
+    FLOAT value = 0;
+
+    PhAcquireQueuedLockShared(&gpu->AppsLock);
+    for (ULONG i = 0; i < gpu->AppCount; i++)
+    {
+        if (gpu->Apps[i].ProcessId == pid)
+        {
+            value = gpu->TopByUsage ? max(gpu->Apps[i].Usage, 0) : (FLOAT)gpu->Apps[i].Memory;
+            break;
+        }
+    }
+    PhReleaseQueuedLockShared(&gpu->AppsLock);
+
+    return value;
+}
+
+static PPH_STRING GpuMiniInfoFormatValue(_In_opt_ PVOID Context, _In_ FLOAT Value)
+{
+    PGPU gpu = Context;
+    return FormatMetric(gpu->TopByUsage ? MetricGpu : MetricDedicated, Value);
+}
+
+// "P40    45%    16.2 GB / 24 GB"
+static PPH_STRING GpuMiniInfoHeader(_In_opt_ PVOID Context)
+{
+    PGPU gpu = Context;
+    PPH_STRING load = FormatMetric(MetricGpu, gpu->Value[MetricGpu]);
+    PPH_STRING memory = FormatUsedOfLimit((ULONG64)gpu->Value[MetricDedicated], gpu->DedicatedLimit);
+    PPH_STRING text = PhFormatString(L"%s    %s    %s", gpu->ShortName->Buffer, load->Buffer, memory->Buffer);
+
+    PhDereferenceObject(memory);
+    PhDereferenceObject(load);
+    return text;
+}
+
+static VOID GpuMiniInfoSetup(VOID)
+{
+    for (ULONG i = 0; i < GpuCount; i++)
+    {
+        PGPU gpu = Gpus[i];
+
+        gpu->MiniInfoName = PhFormatString(L"GPU: %s", gpu->ShortName->Buffer);
+        gpu->MiniInfo.Name = gpu->MiniInfoName->Buffer;
+        gpu->MiniInfo.Context = gpu;
+        gpu->MiniInfo.ProcessValue = GpuMiniInfoProcessValue;
+        gpu->MiniInfo.FormatValue = GpuMiniInfoFormatValue;
+        gpu->MiniInfo.Header = GpuMiniInfoHeader;
+    }
+}
+
+_Function_class_(PH_CALLBACK_FUNCTION)
+static VOID NTAPI MiniInformationInitializingCallback(_In_opt_ PVOID Parameter, _In_opt_ PVOID Context)
+{
+    if (!Parameter)
+        return;
+
+    for (ULONG i = 0; i < GpuCount; i++)
+        TrayMiniInfoCreate(Parameter, &Gpus[i]->MiniInfo);
+}
+
 _Function_class_(PH_CALLBACK_FUNCTION)
 static VOID NTAPI TrayIconsInitializingCallback(_In_opt_ PVOID Parameter, _In_opt_ PVOID Context)
 {
@@ -1671,10 +1741,10 @@ static VOID NTAPI TrayIconsInitializingCallback(_In_opt_ PVOID Parameter, _In_op
         PCWSTR name = gpu->ShortName->Buffer;
 
         // The menu keeps these strings, so they are never freed.
-        TrayRegister(pointers, PluginInstance, &TrayBaseGuid, i * 8 + TrayLoad, gpu, PhFormatString(L"GPU history: %s", name), TRUE, GpuTrayUpdate);
-        TrayRegister(pointers, PluginInstance, &TrayBaseGuid, i * 8 + TrayMemory, gpu, PhFormatString(L"GPU memory history: %s", name), TRUE, GpuTrayUpdate);
+        TrayRegister(pointers, PluginInstance, &TrayBaseGuid, i * 8 + TrayLoad, gpu, PhFormatString(L"GPU history: %s", name), gpu->MiniInfoName->Buffer, TRUE, GpuTrayUpdate);
+        TrayRegister(pointers, PluginInstance, &TrayBaseGuid, i * 8 + TrayMemory, gpu, PhFormatString(L"GPU memory history: %s", name), gpu->MiniInfoName->Buffer, TRUE, GpuTrayUpdate);
         if (gpu->HasNvml)
-            TrayRegister(pointers, PluginInstance, &TrayBaseGuid, i * 8 + TrayTemperature, gpu, PhFormatString(L"GPU temperature history: %s", name), TRUE, GpuTrayUpdate);
+            TrayRegister(pointers, PluginInstance, &TrayBaseGuid, i * 8 + TrayTemperature, gpu, PhFormatString(L"GPU temperature history: %s", name), gpu->MiniInfoName->Buffer, TRUE, GpuTrayUpdate);
     }
 }
 
@@ -1706,6 +1776,7 @@ static VOID NTAPI LoadCallback(_In_opt_ PVOID Parameter, _In_opt_ PVOID Context)
         ChooseMetrics(Gpus[i]);
 
     PdhInitialize();
+    GpuMiniInfoSetup();
 }
 
 _Function_class_(PH_CALLBACK_FUNCTION)
@@ -1761,6 +1832,7 @@ LOGICAL DllMain(
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackProcessProviderUpdatedEvent), ProcessesUpdatedCallback, NULL, &ProcessesUpdatedCallbackRegistration);
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackSystemInformationInitializing), SystemInformationInitializingCallback, NULL, &SystemInformationInitializingCallbackRegistration);
         PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackTrayIconsInitializing), TrayIconsInitializingCallback, NULL, &TrayIconsInitializingCallbackRegistration);
+        PhRegisterCallback(PhGetGeneralCallback(GeneralCallbackMiniInformationInitializing), MiniInformationInitializingCallback, NULL, &MiniInformationInitializingCallbackRegistration);
     }
 
     return TRUE;

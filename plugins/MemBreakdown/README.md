@@ -30,7 +30,8 @@ Information) whose rows add up to the installed RAM, a live version of RAMMap's 
 
 - **Tray icon** (View > Tray icons > *RAM breakdown history*): in-use memory at the bottom with standby (file
   cache) stacked on top, as a share of installed RAM; the empty part is free. The tooltip lists processes, kernel
-  and drivers, modified, standby and free.
+  and drivers, modified, standby and free. Hovering opens the mini info window on a *RAM breakdown* section:
+  in use, standby and free, with processes sorted by private working set.
 
 ## How it works
 

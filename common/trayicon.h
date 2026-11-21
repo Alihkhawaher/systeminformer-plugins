@@ -40,7 +40,40 @@ static GUID TrayGuid(_In_ CONST GUID* Base, _In_ ULONG SubId)
     return guid;
 }
 
-// Text is kept by System Informer for the menu: pass a string that lives as long as the plugin (it is not freed).
+// One registered icon: the plugin's update callback and context, and the mini info section shown when the user
+// hovers or clicks the icon (System Informer's "hover info" window). Allocated once and never freed.
+typedef struct _TRAY_ICON
+{
+    PPH_NF_ICON_UPDATE_CALLBACK Update;
+    PVOID Context;
+    PCWSTR Section;
+} TRAY_ICON, *PTRAY_ICON;
+
+_Function_class_(PH_NF_ICON_UPDATE_CALLBACK)
+static VOID NTAPI TrayUpdateThunk(_In_ PPH_NF_ICON Icon, _Out_ PVOID* NewIconOrBitmap, _Out_ PULONG Flags, _Out_ PPH_STRING* NewText, _In_opt_ PVOID Context)
+{
+    PTRAY_ICON tray = Context;
+
+    tray->Update(Icon, NewIconOrBitmap, Flags, NewText, tray->Context);
+}
+
+_Function_class_(PH_NF_ICON_MESSAGE_CALLBACK)
+static BOOLEAN NTAPI TrayMessageThunk(_In_ PPH_NF_ICON Icon, _In_ ULONG_PTR WParam, _In_ ULONG_PTR LParam, _In_opt_ PVOID Context)
+{
+    PTRAY_ICON tray = Context;
+
+    if (LOWORD(LParam) == PH_NF_MSG_SHOWMINIINFOSECTION && tray && tray->Section)
+    {
+        ((PPH_NF_MSG_SHOWMINIINFOSECTION_DATA)WParam)->SectionName = (PWSTR)tray->Section;
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+// Text is kept by System Informer for the menu, and Section (a mini info section name created with
+// TrayMiniInfoCreate) for the hover window: pass strings that live as long as the plugin (they are not freed).
+// The update callback gets Context.
 static VOID TrayRegister(
     _In_ PPH_TRAY_ICON_POINTERS Pointers,
     _In_ PPH_PLUGIN Plugin,
@@ -48,17 +81,117 @@ static VOID TrayRegister(
     _In_ ULONG SubId,
     _In_opt_ PVOID Context,
     _In_ PPH_STRING Text,
+    _In_opt_ PCWSTR Section,
     _In_ BOOLEAN Available,
     _In_ PPH_NF_ICON_UPDATE_CALLBACK Update
     )
 {
     PH_NF_ICON_REGISTRATION_DATA data;
+    PTRAY_ICON tray = PhAllocateZero(sizeof(TRAY_ICON));
 
     TrayTransparency = !!PhGetIntegerSetting(SETTING_ICON_TRANSPARENCY_ENABLED);
 
-    data.UpdateCallback = Update;
-    data.MessageCallback = NULL;
-    Pointers->RegisterTrayIcon(Plugin, SubId, TrayGuid(Base, SubId), Context, Text->Buffer, Available ? 0 : PH_NF_ICON_UNAVAILABLE, &data);
+    tray->Update = Update;
+    tray->Context = Context;
+    tray->Section = Section;
+    data.UpdateCallback = TrayUpdateThunk;
+    data.MessageCallback = TrayMessageThunk;
+    Pointers->RegisterTrayIcon(Plugin, SubId, TrayGuid(Base, SubId), tray, Text->Buffer, Available ? 0 : PH_NF_ICON_UNAVAILABLE, &data);
+}
+
+// ---- mini info (hover window) list sections ----------------------------------------------------
+// A section like System Informer's own "CPU" / "I/O": a header line and the processes sorted by one value.
+// Callbacks run on the main thread (which has an auto pool). Fill a TRAY_MINIINFO once (static) and call
+// TrayMiniInfoCreate for it from GeneralCallbackMiniInformationInitializing (which runs each time the window is
+// created).
+
+typedef struct _TRAY_MINIINFO
+{
+    PCWSTR Name;                                                    // unique, e.g. L"GPU: P40"
+    PVOID Context;
+    FLOAT (*ProcessValue)(_In_opt_ PVOID Context, _In_ PPH_PROCESS_ITEM Process);   // sort key, bigger first
+    PPH_STRING (*FormatValue)(_In_opt_ PVOID Context, _In_ FLOAT Value);           // usage column
+    PPH_STRING (*Header)(_In_opt_ PVOID Context);                                  // section title text
+} TRAY_MINIINFO, *PTRAY_MINIINFO;
+
+static int __cdecl TrayMiniInfoCompareProcess(_In_ void* Context, _In_ const void* A, _In_ const void* B)
+{
+    PTRAY_MINIINFO mi = Context;
+    FLOAT a = mi->ProcessValue(mi->Context, (*(PPH_PROCESS_NODE*)A)->ProcessItem);
+    FLOAT b = mi->ProcessValue(mi->Context, (*(PPH_PROCESS_NODE*)B)->ProcessItem);
+
+    return a < b ? 1 : a > b ? -1 : 0;
+}
+
+static int __cdecl TrayMiniInfoCompareGroup(_In_ const void* A, _In_ const void* B)
+{
+    FLOAT a = *(PFLOAT)(*(PPH_MINIINFO_LIST_SECTION_SORT_DATA*)A)->UserData;
+    FLOAT b = *(PFLOAT)(*(PPH_MINIINFO_LIST_SECTION_SORT_DATA*)B)->UserData;
+
+    return a < b ? 1 : a > b ? -1 : 0;
+}
+
+_Function_class_(PH_MINIINFO_LIST_SECTION_CALLBACK)
+static BOOLEAN NTAPI TrayMiniInfoCallback(_In_ PPH_MINIINFO_LIST_SECTION ListSection, _In_ PH_MINIINFO_LIST_SECTION_MESSAGE Message, _In_opt_ PVOID Parameter1, _In_opt_ PVOID Parameter2)
+{
+    PTRAY_MINIINFO mi = ListSection->Context;
+
+    switch (Message)
+    {
+    case MiListSectionTick:
+        {
+            PPH_STRING text = mi->Header(mi->Context);
+
+            ListSection->Section->Parameters->SetSectionText(ListSection->Section, text);
+            PhDereferenceObject(text);
+        }
+        break;
+    case MiListSectionSortProcessList:
+        {
+            PPH_MINIINFO_LIST_SECTION_SORT_LIST sortList = Parameter1;
+
+            qsort_s(sortList->List->Items, sortList->List->Count, sizeof(PPH_PROCESS_NODE), TrayMiniInfoCompareProcess, mi);
+        }
+        return TRUE;
+    case MiListSectionAssignSortData:
+        {
+            PPH_MINIINFO_LIST_SECTION_ASSIGN_SORT_DATA assign = Parameter1;
+            PPH_LIST processes = assign->ProcessGroup->Processes;
+            FLOAT sum = 0;
+
+            for (ULONG i = 0; i < processes->Count; i++)
+                sum += mi->ProcessValue(mi->Context, processes->Items[i]);
+
+            *(PFLOAT)assign->SortData->UserData = sum;
+        }
+        return TRUE;
+    case MiListSectionSortGroupList:
+        {
+            PPH_MINIINFO_LIST_SECTION_SORT_LIST sortList = Parameter1;
+
+            qsort(sortList->List->Items, sortList->List->Count, sizeof(PPH_MINIINFO_LIST_SECTION_SORT_DATA), TrayMiniInfoCompareGroup);
+        }
+        return TRUE;
+    case MiListSectionGetUsageText:
+        {
+            PPH_MINIINFO_LIST_SECTION_GET_USAGE_TEXT usage = Parameter1;
+
+            PhMoveReference(&usage->Line1, mi->FormatValue(mi->Context, *(PFLOAT)usage->SortData->UserData));
+        }
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+static VOID TrayMiniInfoCreate(_In_ PPH_PLUGIN_MINIINFO_POINTERS Pointers, _In_ PTRAY_MINIINFO MiniInfo)
+{
+    PH_MINIINFO_LIST_SECTION section;
+
+    memset(&section, 0, sizeof(PH_MINIINFO_LIST_SECTION));
+    section.Context = MiniInfo;
+    section.Callback = TrayMiniInfoCallback;
+    Pointers->CreateListSection(MiniInfo->Name, 0, &section);
 }
 
 static VOID TrayFinish(_In_ PPH_GRAPH_DRAW_INFO DrawInfo, _In_ HDC Hdc, _In_ PVOID Bits, _In_ HBITMAP Bitmap, _In_ HBITMAP OldBitmap, _Out_ PVOID* NewIconOrBitmap, _Out_ PULONG Flags)

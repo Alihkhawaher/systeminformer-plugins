@@ -75,3 +75,8 @@ Pushes to this public repo need the owner's explicit OK each time.
   it. SubId is saved in `IconSettings` (plugin name + SubId), so it follows the device's
   index (GPU discovery order, PhysicalDrive number), which can shift when hardware changes.
   The GUID is only used with `IconTrayPersistGuidEnabled`; `TrayGuid` derives one per SubId from a fixed base.
+- Tray hover window = mini info section. Without a `MessageCallback` answering `PH_NF_MSG_SHOWMINIINFOSECTION` an
+  icon shows no hover info. `trayicon.h` wraps each icon (`TRAY_ICON`) so the message callback returns its section
+  name, and `TrayMiniInfoCreate` makes a list section (header + processes sorted by a value) from
+  `GeneralCallbackMiniInformationInitializing` (main thread, runs each time the window is created; the name
+  pointer is kept, so it must live forever).
